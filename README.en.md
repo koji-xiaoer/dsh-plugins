@@ -1,36 +1,32 @@
 # dsh-plugins
 
-#### Description
-DeepSeek Harness (DSH) 动态插件源码仓库 — Plugins created by the DSH agent
+Source repository for **Dynamic Cordis Plugins** created by the AI assistant in DeepSeek Harness (DSH) sessions.
 
-#### Software Architecture
-Software architecture description
+## Purpose
 
-#### Installation
+DSH dynamic plugins run temporarily inside the DSH process and are defined via `cordis_define`. Plugin definitions do **not** survive a process restart, so this repository persists:
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+- Host / Client source code of every plugin
+- Purpose, version history, and repair records
+- Everything needed to recreate a plugin in any session (`cordis_define` + `cordis_run`)
 
-#### Instructions
+## Layout
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+One directory per plugin, named by `pluginId`:
 
-#### Contribution
+```
+dsh-plugins/
+├── README.md
+└── <pluginId>/
+    ├── README.md        # purpose, versions, run notes
+    ├── host.js          # Host source (if any)
+    └── client.js        # Client source (if any)
+```
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+## Usage
 
+1. Create or update a plugin via `cordis_define` in a DSH session
+2. Retrieve the latest Package source with `cordis_inspect_self(pluginId, packageId)`
+3. Save it into this repository following the layout above, then commit
 
-#### Gitee Feature
-
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+Push via SSH: `git@gitee.com:CGWP/dsh-plugins.git`

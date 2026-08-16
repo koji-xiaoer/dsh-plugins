@@ -1,37 +1,35 @@
 # dsh-plugins
 
-#### 介绍
-DeepSeek Harness (DSH) 动态插件源码仓库 — Plugins created by the DSH agent
+存放 DeepSeek Harness（DSH）会话中由 AI 助手创建的**动态插件（Dynamic Cordis Plugin）源码**的仓库。
 
-#### 软件架构
-软件架构说明
+## 仓库用途
 
+DSH 的动态插件是临时运行在 DSH 进程中的 Cordis 插件，由会话中的助手通过 `cordis_define` 定义。插件定义**不随进程重启保留**，因此本仓库用于：
 
-#### 安装教程
+- 持久化保存每个插件的 Host / Client 源码
+- 记录插件的用途、运行状态与修复记录
+- 需要时可通过源码在任何会话中重新创建（`cordis_define` + `cordis_run`）
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+## 目录结构
 
-#### 使用说明
+每个插件一个目录，以 `pluginId` 命名：
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+```
+dsh-plugins/
+├── README.md
+└── <pluginId>/
+    ├── README.md        # 插件用途、版本历史、运行说明
+    ├── host.js          # Host 端源码（如有）
+    └── client.js        # Client 端源码（如有）
+```
 
-#### 参与贡献
+## 如何使用
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+1. 在 DSH 会话中通过 `cordis_define` 创建或更新插件
+2. 用 `cordis_inspect_self(pluginId, packageId)` 取出最新 Package 源码
+3. 按上述结构保存到本仓库并提交
 
+## 维护
 
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+- 使用 SSH 推送：`git@gitee.com:CGWP/dsh-plugins.git`
+- 每次提交说明对应哪个插件、哪个 Package 版本
