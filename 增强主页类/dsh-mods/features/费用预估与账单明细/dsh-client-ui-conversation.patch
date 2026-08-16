@@ -1711,13 +1711,13 @@
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5670,546 @@
+@@ -4015,6 +5670,558 @@
  				})]
  			});
  		}
 +		//#region \0dsh-css:/custom/patched/CostPanel.module.css.mjs
-+		const css$21 = ".f7cQ9_card{border-bottom:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding:16px 0;display:flex}.f7cQ9_header{align-items:flex-start;gap:12px;display:flex}.f7cQ9_switchWrap{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;flex:none;font-size:13px;line-height:20px;display:inline-flex;cursor:pointer;user-select:none}.f7cQ9_switchLabel{white-space:nowrap}.f7cQ9_switchInput{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}.f7cQ9_switchTrack{position:relative;background:var(--dsw-alias-border-l3);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;width:34px;height:20px;flex:none;transition:background .18s ease,border-color .18s ease}.f7cQ9_switchKnob{position:absolute;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);border-radius:50%;top:2px;left:2px;width:14px;height:14px;transition:transform .18s cubic-bezier(.4,0,.2,1)}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack{background:var(--dsw-alias-state-business-primary);border-color:transparent}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack .f7cQ9_switchKnob{transform:translateX(14px)}.f7cQ9_switchInput:focus-visible+.f7cQ9_switchTrack{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.f7cQ9_panel{background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;flex-direction:column;gap:10px;padding:10px;display:flex;transition:opacity .2s ease,filter .2s ease}.f7cQ9_panelOff{opacity:.45;filter:saturate(.35);pointer-events:none}.f7cQ9_toolbar{align-items:center;gap:8px;display:flex}.f7cQ9_segmented{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;flex:1;gap:2px;padding:2px;display:flex;min-width:0}.f7cQ9_segBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:1;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:12px;line-height:24px;padding:0 10px;display:flex;transition:color .15s ease,background .15s ease}.f7cQ9_segBtn:hover{color:var(--dsw-alias-label-secondary)}.f7cQ9_segBtnActive{background:var(--dsw-alias-bg-module-platform);box-shadow:0 1px 2px rgba(0,0,0,.12);color:var(--dsw-alias-label-primary);font-weight:600}.f7cQ9_segDot{background:var(--dsw-alias-state-business-primary);border-radius:50%;width:6px;height:6px;flex:none}.f7cQ9_resetBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:none;align-items:center;gap:4px;font-size:11px;line-height:18px;padding:2px 7px;display:inline-flex;transition:color .15s ease,background .15s ease}.f7cQ9_resetBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.f7cQ9_periodBar{color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,currentColor 24%,transparent);background:color-mix(in srgb,currentColor 8%,transparent);border-radius:9px;flex-direction:column;gap:3px;padding:7px 10px;display:flex}.f7cQ9_periodPeak{color:var(--dsw-alias-state-warn-primary)}.f7cQ9_periodOffpeak{color:var(--dsw-alias-state-success-primary)}.f7cQ9_periodStandard{color:var(--dsw-alias-state-business-primary)}.f7cQ9_periodRow{align-items:center;gap:8px;display:flex}.f7cQ9_periodDot{background:currentColor;border-radius:50%;width:8px;height:8px;flex:none;animation:f7cQ9_pulse 2.4s ease-out infinite}.f7cQ9_periodLabel{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.f7cQ9_periodName{color:currentColor;font-size:12px;font-weight:600;line-height:18px}.f7cQ9_periodMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_bucketList{flex-direction:column;gap:8px;display:flex}.f7cQ9_bucketRow{align-items:center;gap:10px;grid-template-columns:64px minmax(0,1fr) auto;display:grid}.f7cQ9_bucketLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}.f7cQ9_field{position:relative;align-items:center;min-width:0;display:flex}.f7cQ9_priceInput{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:400 12px/18px var(--ds-font-family-code);font-variant-numeric:tabular-nums;height:28px;outline:none;padding:0 36px 0 8px;transition:border-color .15s ease,box-shadow .15s ease;width:100%;-moz-appearance:textfield}.f7cQ9_priceInput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}.f7cQ9_priceInput::placeholder{color:var(--dsw-alias-label-dimmed)}.f7cQ9_priceInput::-webkit-inner-spin-button,.f7cQ9_priceInput::-webkit-outer-spin-button{-webkit-appearance:none;appearance:none;margin:0}.f7cQ9_unit{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;pointer-events:none;position:absolute;right:8px}.f7cQ9_clearBtn{background:0 0;border:none;border-radius:4px;color:var(--dsw-alias-label-tertiary);cursor:pointer;height:16px;place-items:center;position:absolute;right:32px;width:16px;display:grid;transition:color .15s ease,background .15s ease}.f7cQ9_clearBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.f7cQ9_bucketHint{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;white-space:nowrap}.f7cQ9_footnote{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyRow{align-items:center;gap:10px;padding:7px 8px;display:flex}.f7cQ9_notifyIcon{background:var(--dsw-alias-interactive-bg-hover);border-radius:8px;color:var(--dsw-alias-label-secondary);flex:none;height:30px;place-items:center;width:30px;display:grid}.f7cQ9_notifyText{flex:1;flex-direction:column;gap:1px;min-width:0;display:flex}.f7cQ9_notifyTitle{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.f7cQ9_notifyDesc{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyDivider{background:var(--dsw-alias-border-l2);height:1px;margin:2px 0}@keyframes f7cQ9_pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 40%,transparent)}70%{box-shadow:0 0 0 7px color-mix(in srgb,currentColor 0%,transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 0%,transparent)}}.f7cQ9_pickBtn{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-primary);cursor:pointer;flex:none;align-items:center;gap:6px;font-size:12px;line-height:20px;padding:4px 12px;display:inline-flex;transition:border-color .15s ease,background .15s ease,color .15s ease}.f7cQ9_pickBtn:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-state-business-primary)}.f7cQ9_pickBtn svg{flex:none}";
-+		const tagId$21 = "@deepseek-ai/dsh-client-ui-conversation/CostPanel.module.css?v2";
++		const css$21 = ".f7cQ9_card{border-bottom:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding:16px 0;display:flex}.f7cQ9_header{align-items:flex-start;gap:12px;display:flex}.f7cQ9_switchWrap{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;flex:none;font-size:13px;line-height:20px;display:inline-flex;cursor:pointer;user-select:none}.f7cQ9_switchLabel{white-space:nowrap}.f7cQ9_switchInput{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}.f7cQ9_switchTrack{position:relative;background:var(--dsw-alias-border-l3);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;width:34px;height:20px;flex:none;transition:background .18s ease,border-color .18s ease}.f7cQ9_switchKnob{position:absolute;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);border-radius:50%;top:2px;left:2px;width:14px;height:14px;transition:transform .18s cubic-bezier(.4,0,.2,1)}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack{background:var(--dsw-alias-state-business-primary);border-color:transparent}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack .f7cQ9_switchKnob{transform:translateX(14px)}.f7cQ9_switchInput:focus-visible+.f7cQ9_switchTrack{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.f7cQ9_panel{background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;flex-direction:column;gap:10px;padding:10px;display:flex;transition:opacity .2s ease,filter .2s ease}.f7cQ9_panelOff{opacity:.45;filter:saturate(.35);pointer-events:none}.f7cQ9_toolbar{align-items:center;gap:8px;display:flex}.f7cQ9_segmented{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;flex:1;gap:2px;padding:2px;display:flex;min-width:0}.f7cQ9_segBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:1;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:12px;line-height:24px;padding:0 10px;display:flex;transition:color .15s ease,background .15s ease}.f7cQ9_segBtn:hover{color:var(--dsw-alias-label-secondary)}.f7cQ9_segBtnActive{background:var(--dsw-alias-bg-module-platform);box-shadow:0 1px 2px rgba(0,0,0,.12);color:var(--dsw-alias-label-primary);font-weight:600}.f7cQ9_segDot{background:var(--dsw-alias-state-business-primary);border-radius:50%;width:6px;height:6px;flex:none}.f7cQ9_resetBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:none;align-items:center;gap:4px;font-size:11px;line-height:18px;padding:2px 7px;display:inline-flex;transition:color .15s ease,background .15s ease}.f7cQ9_resetBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.f7cQ9_periodBar{color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,currentColor 24%,transparent);background:color-mix(in srgb,currentColor 8%,transparent);border-radius:9px;flex-direction:column;gap:3px;padding:7px 10px;display:flex}.f7cQ9_periodPeak{color:var(--dsw-alias-state-warn-primary)}.f7cQ9_periodOffpeak{color:var(--dsw-alias-state-success-primary)}.f7cQ9_periodStandard{color:var(--dsw-alias-state-business-primary)}.f7cQ9_periodRow{align-items:center;gap:8px;display:flex}.f7cQ9_periodDot{background:currentColor;border-radius:50%;width:8px;height:8px;flex:none;animation:f7cQ9_pulse 2.4s ease-out infinite}.f7cQ9_periodLabel{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.f7cQ9_periodName{color:currentColor;font-size:12px;font-weight:600;line-height:18px}.f7cQ9_periodMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_bucketList{flex-direction:column;gap:8px;display:flex}.f7cQ9_bucketRow{align-items:center;gap:10px;grid-template-columns:64px minmax(0,1fr) auto;display:grid}.f7cQ9_bucketLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}.f7cQ9_field{position:relative;align-items:center;min-width:0;display:flex}.f7cQ9_priceInput{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:400 12px/18px var(--ds-font-family-code);font-variant-numeric:tabular-nums;height:28px;outline:none;padding:0 36px 0 8px;transition:border-color .15s ease,box-shadow .15s ease;width:100%;-moz-appearance:textfield}.f7cQ9_priceInput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}.f7cQ9_priceInput::placeholder{color:var(--dsw-alias-label-dimmed)}.f7cQ9_priceInput::-webkit-inner-spin-button,.f7cQ9_priceInput::-webkit-outer-spin-button{-webkit-appearance:none;appearance:none;margin:0}.f7cQ9_unit{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;pointer-events:none;position:absolute;right:8px}.f7cQ9_clearBtn{background:0 0;border:none;border-radius:4px;color:var(--dsw-alias-label-tertiary);cursor:pointer;height:16px;place-items:center;position:absolute;right:32px;width:16px;display:grid;transition:color .15s ease,background .15s ease}.f7cQ9_clearBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.f7cQ9_bucketHint{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;white-space:nowrap}.f7cQ9_footnote{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyRow{align-items:center;gap:10px;padding:7px 8px;display:flex}.f7cQ9_notifyIcon{background:var(--dsw-alias-interactive-bg-hover);border-radius:8px;color:var(--dsw-alias-label-secondary);flex:none;height:30px;place-items:center;width:30px;display:grid}.f7cQ9_notifyText{flex:1;flex-direction:column;gap:1px;min-width:0;display:flex}.f7cQ9_notifyTitle{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.f7cQ9_notifyDesc{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyDivider{background:var(--dsw-alias-border-l2);height:1px;margin:2px 0}@keyframes f7cQ9_pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 40%,transparent)}70%{box-shadow:0 0 0 7px color-mix(in srgb,currentColor 0%,transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 0%,transparent)}}.f7cQ9_pickBtn{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;box-sizing:border-box;color:var(--dsw-alias-label-primary);cursor:pointer;flex:1;align-items:center;justify-content:center;gap:7px;font-size:13px;line-height:20px;height:30px;min-width:0;padding:0 14px;display:flex;transition:border-color .15s ease,background .15s ease,color .15s ease}.f7cQ9_pickBtn:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-state-business-primary)}.f7cQ9_pickBtn[data-active=true]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);color:var(--dsw-alias-state-business-primary)}.f7cQ9_pickBtn svg{flex:none}";
++		const tagId$21 = "@deepseek-ai/dsh-client-ui-conversation/CostPanel.module.css?v3";
 +		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$21) + "]") === null) {
 +			const tag = document.createElement("style");
 +			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
@@ -2047,9 +2047,7 @@
 +			const [customData, setCustomData] = (0, react.useState)(() => readNotifyData());
 +			const [fileName, setFileName] = (0, react.useState)(() => readNotifyName());
 +			const [pickError, setPickError] = (0, react.useState)(null);
-+			const pickFile = (event) => {
-+				const file = event.target.files && event.target.files[0];
-+				event.target.value = "";
++			const handleFile = (file) => {
 +				if (!file) return;
 +				if (file.size > NOTIFY_MAX_BYTES) {
 +					setPickError(t("settings.notify.customTooLarge"));
@@ -2068,6 +2066,16 @@
 +					setPickError(t("settings.notify.customReadError"));
 +				};
 +				reader.readAsDataURL(file);
++			};
++			const pickFile = (event) => {
++				const file = event.target.files && event.target.files[0];
++				event.target.value = "";
++				handleFile(file);
++			};
++			const dropFile = (event) => {
++				event.preventDefault();
++				const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
++				handleFile(file);
 +			};
 +			const removeCustom = () => {
 +				setCustomData(null);
@@ -2171,9 +2179,15 @@
 +								className: CostEstimateRow_module_css_default.toolbar,
 +								children: [(0, react_jsx_runtime.jsxs)("label", {
 +									className: CostEstimateRow_module_css_default.pickBtn,
++									"data-active": customData !== null,
 +									style: {
 +										cursor: "pointer"
 +									},
++									onDragOver: (event) => {
++										event.preventDefault();
++										event.dataTransfer.dropEffect = "copy";
++									},
++									onDrop: dropFile,
 +									children: [(0, react_jsx_runtime.jsx)("svg", {
 +										width: 14,
 +										height: 14,
@@ -2192,9 +2206,6 @@
 +										},
 +										onChange: pickFile
 +									})]
-+								}), fileName !== "" && (0, react_jsx_runtime.jsx)("span", {
-+									className: CostEstimateRow_module_css_default.footnote,
-+									children: fileName
 +								}), customData !== null && (0, react_jsx_runtime.jsx)("button", {
 +									type: "button",
 +									className: CostEstimateRow_module_css_default.resetBtn,
@@ -2203,8 +2214,9 @@
 +								})]
 +							}), (0, react_jsx_runtime.jsx)("div", {
 +								className: CostEstimateRow_module_css_default.footnote,
-+								children: pickError !== null ? pickError : t("settings.notify.customFormat")
++								children: pickError !== null ? pickError : (fileName !== "" ? fileName + " · " : "") + t("settings.notify.customFormat")
 +							})]
++
 +						})]
 +					}), (0, react_jsx_runtime.jsx)("div", {
 +						className: CostEstimateRow_module_css_default.notifyDivider
@@ -2258,7 +2270,7 @@
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
  		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +7101,10 @@
+@@ -4906,8 +7113,10 @@
  			const rest = [];
  			for (const block of content) {
  				const b = block;
@@ -2271,7 +2283,7 @@
  				else rest.push(block);
  			}
  			return {
-@@ -5170,7 +7367,7 @@
+@@ -5170,7 +7379,7 @@
  		});
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
@@ -2280,7 +2292,7 @@
  		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -5185,6 +7382,12 @@
+@@ -5185,6 +7394,12 @@
  			"callRow": "Md3f7G_callRow",
  			"turnStatusClock": "Md3f7G_turnStatusClock",
  			"flowItem": "Md3f7G_flowItem",
@@ -2293,7 +2305,7 @@
  			"scroll": "Md3f7G_scroll",
  			"hint": "Md3f7G_hint",
  			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +7443,21 @@
+@@ -5240,6 +7455,21 @@
  			});
  		});
  		//#endregion
@@ -2315,7 +2327,7 @@
  		//#region lib/types/client/chat/ChatView.js
  		/** Active column host when present; otherwise the view-local scroller. */
  		function scrollerOf(from) {
-@@ -5329,6 +7547,38 @@
+@@ -5329,6 +7559,38 @@
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -2354,7 +2366,7 @@
  		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
  			const order = useSession((s) => s.chat.order);
  			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +7614,18 @@
+@@ -5364,6 +7626,18 @@
  			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
  			const lastKey = order.at(-1) ?? null;
  			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
@@ -2373,7 +2385,7 @@
  			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
  			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
  			const toBottom = (el) => {
-@@ -5501,6 +7763,61 @@
+@@ -5501,6 +7775,61 @@
  				}
  				loadOlder();
  			};
@@ -2435,7 +2447,7 @@
  			return (0, react_jsx_runtime.jsx)("div", {
  				className: ChatView_module_css_default.root,
  				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +7848,7 @@
+@@ -5531,19 +7860,7 @@
  									children: loadingOlder ? t("loading") : t("chat.loadOlder")
  								})
  							}),
@@ -2456,7 +2468,7 @@
  							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
  								startTime: runningTurnStart,
  								t
-@@ -5827,10 +8132,96 @@
+@@ -5827,10 +8144,96 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -2553,7 +2565,7 @@
  			"access.confirm.title": "确认启用 Full access？",
  			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
  			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8248,14 @@
+@@ -5857,6 +8260,14 @@
  			"chat.loadError": "历史加载失败：{message}（{code}）",
  			"chat.loadOlder": "加载更早",
  			"chat.toBottom": "回到底部",
@@ -2568,7 +2580,7 @@
  			"message.extraBlock": "附加内容块",
  			"message.contextInjection": "上下文注入",
  			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +8391,96 @@
+@@ -5992,10 +8403,96 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -2665,7 +2677,7 @@
  			"access.confirm.title": "Enable Full access?",
  			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
  			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +8507,14 @@
+@@ -6022,6 +8519,14 @@
  			"chat.loadError": "Failed to load history: {message} ({code})",
  			"chat.loadOlder": "Load earlier",
  			"chat.toBottom": "Back to bottom",
@@ -2680,7 +2692,7 @@
  			"message.extraBlock": "Extra content block",
  			"message.contextInjection": "Context injection",
  			"message.contextRecall": "Session recall",
-@@ -9460,6 +11953,7 @@
+@@ -9460,6 +11965,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -2688,7 +2700,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +11975,50 @@
+@@ -9481,6 +11987,50 @@
  					}
  				})
  			}, EnterBehaviorRow));
