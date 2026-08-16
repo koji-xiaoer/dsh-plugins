@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js
-@@ -7791,6 +7791,215 @@
+@@ -7791,6 +7791,227 @@
  			if (options.length > 2) return "question";
  			return options.some((option) => option.label === intent.approve) ? "plan-review" : "question";
  		}
@@ -50,7 +50,7 @@
 +				if (this.audio.state === "suspended") this.audio.resume().catch(() => {});
 +			}
 +			/** Soft two-tone completion chime synthesized with oscillators (no asset). */
-+			chime() {
++			chime(volume) {
 +				if (this.audio === null || this.audio.state !== "running") return;
 +				const now = this.audio.currentTime;
 +				const notes = [[659.25, 0, 0.45], [880, 0.28, 0.8]];
@@ -60,7 +60,7 @@
 +					osc.type = "sine";
 +					osc.frequency.value = freq;
 +					gain.gain.setValueAtTime(0.0001, now + at);
-+					gain.gain.exponentialRampToValueAtTime(0.12, now + at + 0.025);
++					gain.gain.exponentialRampToValueAtTime(0.12 * (volume ?? 0.8), now + at + 0.025);
 +					gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
 +					osc.connect(gain);
 +					gain.connect(this.audio.destination);
@@ -69,7 +69,7 @@
 +				}
 +			}
 +			/** Crisper bell-like two-tone synthesized with oscillators (no asset). */
-+			bell() {
++			bell(volume) {
 +				if (this.audio === null || this.audio.state !== "running") return;
 +				const now = this.audio.currentTime;
 +				const notes = [[880, 0, 0.35], [1318.51, 0.18, 0.55]];
@@ -79,13 +79,24 @@
 +					osc.type = "triangle";
 +					osc.frequency.value = freq;
 +					gain.gain.setValueAtTime(0.0001, now + at);
-+					gain.gain.exponentialRampToValueAtTime(0.1, now + at + 0.02);
++					gain.gain.exponentialRampToValueAtTime(0.1 * (volume ?? 0.8), now + at + 0.02);
 +					gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
 +					osc.connect(gain);
 +					gain.connect(this.audio.destination);
 +					osc.start(now + at);
 +					osc.stop(now + at + dur + 0.05);
 +				}
++			}
++			/** Read the user volume preference (0..1, default 0.8). */
++			readVolume() {
++				try {
++					const raw = localStorage.getItem("dsh.notify.sound.volume");
++					if (raw !== null && raw !== "") {
++						const parsed = Number(raw);
++						if (Number.isFinite(parsed)) return Math.min(1, Math.max(0, parsed));
++					}
++				} catch (error) {}
++				return 0.8;
 +			}
 +			/** Play the user-selected completion sound (localStorage source + optional custom data URL). */
 +			playSound() {
@@ -95,28 +106,29 @@
 +					source = localStorage.getItem("dsh.notify.sound.source") || "chime";
 +					data = localStorage.getItem("dsh.notify.sound.data");
 +				} catch (error) {}
++				const volume = this.readVolume();
 +				if (source === "bell") {
-+					this.bell();
++					this.bell(volume);
 +					return;
 +				}
 +				if (source === "custom") {
 +					if (data !== null && data !== "") {
 +						try {
 +							const audio = new Audio(data);
-+							audio.volume = 0.8;
++							audio.volume = volume;
 +							const play = audio.play();
 +							if (play !== void 0) play.catch(() => {
-+								this.chime();
++								this.chime(volume);
 +							});
 +							return;
 +						} catch (error) {
 +							/* fall through to the synthesized chime */
 +						}
 +					}
-+					this.chime();
++					this.chime(volume);
 +					return;
 +				}
-+				this.chime();
++				this.chime(volume);
 +			}
 +			/** Localized title labels by browser language. */
 +			labels() {
@@ -216,7 +228,7 @@
  		/** Instance cluster + frame entry + the session list. */
  		var SessionManager = class {
  			api;
-@@ -8549,11 +8758,13 @@
+@@ -8549,11 +8770,13 @@
  					}
  					if (prev && !s.running) {
  						if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId);
