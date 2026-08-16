@@ -1,5 +1,5 @@
---- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-+++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+--- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.orig.js	2026-08-14 17:02:41.892156597 +0800
++++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js	2026-08-17 02:38:34.560712953 +0800
 @@ -2357,6 +2357,64 @@
  				this.busyEnter.set(section.busyEnter);
  			}
@@ -65,7 +65,7 @@
  		//#endregion
  		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
  		function r(e) {
-@@ -2787,6 +2845,92 @@
+@@ -2787,6 +2845,111 @@
  			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
  		}
  		/**
@@ -119,6 +119,25 @@
 +			return table[pricingPeriod(now)];
 +		}
 +		/**
++		* 会话最近一次模型请求的时刻(毫秒):时间线最后一个 turn 的结束(或
++		* 开始)时刻。投影驱动的整行/整会话计价用它判定峰谷时段,使历史会话
++		* 按请求时段计价而不是按打开账单的当下时刻;请求结束时刻即 usage 上报
++		* 时刻,与逐笔明细按 event.time 计价的口径一致。无时间线数据时回退
++		* 当前时刻。
++		* @param timeline - 会话时间线(timeline.turns 为 Map)。
++		* @returns 计价参考时刻(毫秒)。
++		*/
++		function lastActivityTime(timeline) {
++			let latest = 0;
++			if (timeline !== void 0 && timeline.turns !== void 0) {
++				for (const turn of timeline.turns.values()) {
++					if (turn.start !== void 0) latest = Math.max(latest, turn.start.time);
++					if (turn.end !== void 0) latest = Math.max(latest, turn.end.time);
++				}
++			}
++			return latest > 0 ? latest : Date.now();
++		}
++		/**
 +		* Compact CNY price display: 0.02 / 0.025 / 1 / 4.5 (no trailing zeros).
 +		* @param price - price per 1M tokens.
 +		* @returns display string.
@@ -158,20 +177,24 @@
  		* Approximate context occupancy, using the TUI's integer rounding and upper
  		* clamp. The numerator is `projectedTokens` — the provider sample carried
  		* forward over the surface's movement since — so compaction shows immediately
-@@ -2810,6 +2954,7 @@
+@@ -2809,7 +2972,9 @@
+ 		}
  		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t }) {
  			const settledNodes = useSession((s) => s.chat.legacy.nodes);
++			const timeline = useSession((s) => s.chat.timeline);
  			const usage = useProjection("tokenUsage");
 +			const usageByModel = useProjection("tokenUsageByModel");
  			const projected = useProjection("sessionStats");
  			const stats = (0, react.useMemo)(() => projected ?? deriveStats(settledNodes), [projected, settledNodes]);
  			const groups = [];
-@@ -2835,6 +2980,39 @@
+@@ -2835,6 +3000,41 @@
  					output: formatTokens(usage.outputTokens)
  				}));
  			}
 +			const costCfg = useCostEstimateConfig();
-+			const now = new Date();
++			// [billing-fix] 计价参考时刻 = 会话最近一次请求时刻(时间线末尾),
++			// 历史会话不再按打开账单的当下时刻重估峰谷时段。
++			const now = lastActivityTime(timeline);
 +			let estimatedCost = null;
 +			if (costCfg.enabled) {
 +				if (usageByModel !== void 0 && typeof usageByModel === "object") {
@@ -206,7 +229,7 @@
  			const line = groups.join(" | ");
  			const rootRef = (0, react.useRef)(null);
  			const [truncated, setTruncated] = (0, react.useState)(false);
-@@ -2853,11 +3031,20 @@
+@@ -2853,11 +3053,20 @@
  				};
  			}, [line]);
  			if (groups.length === 0) return null;
@@ -229,7 +252,7 @@
  				children: (0, react_jsx_runtime.jsx)("div", {
  					ref: rootRef,
  					className: StatsLine_module_css_default.root,
-@@ -3058,6 +3245,1596 @@
+@@ -3058,6 +3267,1650 @@
  			});
  		}
  		//#endregion
@@ -349,13 +372,15 @@
 +		* `tokenUsageByModel` projection and the cost-estimate settings; renders
 +		* nothing until usage is reported and the feature is enabled.
 +		*/
-+		function CostMeter({ useProjection, t }) {
++		function CostMeter({ useProjection, useSession, t }) {
 +			const usage = useProjection("tokenUsage");
 +			const usageByModel = useProjection("tokenUsageByModel");
++			const timeline = useSession((s) => s.chat.timeline);
 +			const costCfg = useCostEstimateConfig();
 +			const [open, setOpen] = (0, react.useState)(false);
 +			const rootRef = (0, react.useRef)(null);
-+			const costBuckets = costCfg.enabled ? collectCostBuckets(usage, usageByModel, new Date(), costCfg.prices) : null;
++			// [billing-fix] 计价参考时刻 = 会话最近一次请求时刻,不再按当下时刻重估。
++			const costBuckets = costCfg.enabled ? collectCostBuckets(usage, usageByModel, lastActivityTime(timeline), costCfg.prices) : null;
 +			const available = costBuckets !== null && costBuckets.total > 0;
 +			(0, react.useEffect)(() => {
 +				if (!available && open) setOpen(false);
@@ -513,6 +538,19 @@
 +			return BillingView_module_css_default.colorOther;
 +		}
 +		/**
++		* CSS color value for one model name — the fill-style counterpart of
++		* {@link billingModelColor}: the turn chart paints fills through the
++		* `--chart-color` custom property, which must hold a real color, not a
++		* class name (a class name makes `background: var(--chart-color, …)`
++		* invalid at computed-value time, so fills render transparent and only
++		* the gray track row is visible).
++		*/
++		function billingModelColorValue(model) {
++			if (model === "deepseek-v4-pro") return "#a78bfa";
++			if (model === "deepseek-v4-flash") return "var(--dsw-static-blue-450)";
++			return "var(--dsw-static-neutral-bluish-400)";
++		}
++		/**
 +		* Billing view: a per-session cost statement fed by `session.list`
 +		* projections (`sessionStats`, `tokenUsage`, `tokenUsageByModel`). Rows
 +		* degrade to em-dashes when a session carries no projection block.
@@ -596,42 +634,9 @@
 +				setDetailError(null);
 +				setDetailData(null);
 +				(async () => {
-+					const allEntries = [];
-+					let beforeSeq;
-+					let pageError = null;
-+					let capped = false;
-+					let page = 0;
-+					// beforeSeq 必须取当前页最旧事件的 seq（向前翻页）；取最新事件的 seq
-+					// 会导致服务端每次都返回几乎同一页（只少一条），明细永远只有尾部一小段。
-+					while (page < 60) {
-+						page += 1;
-+						let result;
-+						try {
-+							const r = await api.sessions.history({ sessionId: detail.sessionId, maxMessages: 100, usageOnly: true, ...beforeSeq === void 0 ? {} : { beforeSeq } });
-+							result = r.result;
-+						} catch (error) {
-+							pageError = String(error?.message ?? error);
-+							break;
-+						}
-+						if (cancelled) return;
-+						if (!result.ok) {
-+							pageError = result.error?.message ?? "history failed";
-+							break;
-+						}
-+						for (const e of result.value.events) allEntries.push(e);
-+						if (allEntries.length >= 200000) {
-+							capped = true;
-+							break;
-+						}
-+						if (!result.value.hasMore || result.value.events.length === 0) break;
-+						if (page >= 60) {
-+							capped = true;
-+							break;
-+						}
-+						beforeSeq = result.value.events[0].event.seq;
-+					}
++					const { entries: allEntries, error: pageError, capped } = await fetchUsageEntries(api, detail.sessionId);
 +					if (cancelled) return;
-+					if (pageError !== null) setDetailError(pageError);
++					if (pageError !== void 0) setDetailError(pageError);
 +					const foldNow = new Date();
 +					setDetailData({
 +						turns: foldTurnCosts(allEntries, foldNow, costCfg.prices),
@@ -644,7 +649,34 @@
 +					cancelled = true;
 +				};
 +			}, [detail, api, costCfg.prices]);
-+			const now = new Date();
++			// [billing-fix] 服务端费用聚合:总账单金额来自 session.cost(服务端按
++			// 请求时刻逐笔折叠,内置价表 + 自定义价覆盖),5 秒轮询追平实时用量,
++			// 服务端按 (updatedAt, 价表) 缓存,不活跃会话零成本。不再由浏览器
++			// 逐会话拉明细折叠(旧方案 165 请求/20 秒,且重开页面要重折)。
++			const [costData, setCostData] = (0, react.useState)(null);
++			(0, react.useEffect)(() => {
++				let cancelled = false;
++				const refresh = () => {
++					api.sessions.cost({}).then(({ result }) => {
++						if (cancelled) return;
++						if (result.ok) setCostData(result.value);
++						else setFailed(result.error?.message ?? "cost failed");
++					}).catch((error) => {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					});
++				};
++				refresh();
++				const timer = setInterval(refresh, 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(timer);
++				};
++			}, [api]);
++			const costMap = (0, react.useMemo)(() => {
++				const m = new Map();
++				if (costData !== null) for (const item of costData.items) m.set(item.sessionId, item);
++				return m;
++			}, [costData]);
 +			const rows = (0, react.useMemo)(() => {
 +				if (items === null) return null;
 +				const out = [];
@@ -652,20 +684,33 @@
 +					const p = item.projections?.values;
 +					const usage = p?.tokenUsage;
 +					const usageByModel = p?.tokenUsageByModel;
-+					let cost = null;
-+					if (usageByModel !== void 0 && typeof usageByModel === "object") {
-+						let total = 0;
-+						let any = false;
-+						for (const key of Object.keys(usageByModel)) {
-+							const c = estimateCost(usageByModel[key], key, now, costCfg.prices);
-+							if (c !== null && c > 0) {
-+								total += c;
-+								any = true;
++					// [billing-fix] 行金额优先用服务端 session.cost 聚合(与明细弹窗
++					// 同口径,按请求时刻计价);服务端未返回该会话时回退投影估算,
++					// 参考时刻取会话最后更新时间,不再按打开账单的当下时刻重估。
++					const fold = costMap.get(item.sessionId);
++					let cost = fold !== void 0 ? fold.cost : null;
++					let input = fold !== void 0 ? fold.input + fold.write : void 0;
++					let output = fold !== void 0 ? fold.output : void 0;
++					if (cost === null) {
++						const rowNow = typeof item.updatedAt === "number" && item.updatedAt > 0 ? item.updatedAt : Date.now();
++						if (usageByModel !== void 0 && typeof usageByModel === "object") {
++							let total = 0;
++							let any = false;
++							for (const key of Object.keys(usageByModel)) {
++								const c = estimateCost(usageByModel[key], key, rowNow, costCfg.prices);
++								if (c !== null && c > 0) {
++									total += c;
++									any = true;
++								}
 +							}
++							if (any) cost = total;
 +						}
-+						if (any) cost = total;
++						if (cost === null && usage !== void 0 && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) cost = estimateCost(usage, null, rowNow, costCfg.prices);
++						if (usage !== void 0) {
++							input = billedInputTokens(usage);
++							output = usage.outputTokens;
++						}
 +					}
-+					if (cost === null && usage !== void 0 && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) cost = estimateCost(usage, null, now, costCfg.prices);
 +					const stats = p?.sessionStats;
 +					out.push({
 +						sessionId: item.sessionId,
@@ -676,6 +721,8 @@
 +						usage,
 +						usageByModel,
 +						cost,
++						input,
++						output,
 +						turns: stats?.turns,
 +						steps: stats?.steps,
 +						subCost: 0,
@@ -684,7 +731,7 @@
 +				}
 +				out.sort((a, b) => b.updatedAt - a.updatedAt);
 +				return out;
-+			}, [items, now, costCfg.prices]);
++			}, [items, costMap, costCfg.prices]);
 +			const byId = new Map();
 +			if (rows !== null) for (const r of rows) byId.set(r.sessionId, r);
 +			if (rows !== null) for (const r of rows) {
@@ -709,31 +756,32 @@
 +						totalCost += r.cost;
 +						withUsage += 1;
 +					}
-+					if (r.usage !== void 0) {
-+						totalInput += billedInputTokens(r.usage);
-+						totalOutput += r.usage.outputTokens;
++					if (r.input !== void 0) {
++						totalInput += r.input;
++						totalOutput += r.output ?? 0;
 +					}
-+					if (r.usageByModel !== void 0 && typeof r.usageByModel === "object") {
-+						for (const key of Object.keys(r.usageByModel)) {
-+							const c = estimateCost(r.usageByModel[key], key, now, costCfg.prices);
-+							if (c !== null && c > 0) {
-+								const entry = byModel.get(key) ?? { cost: 0, sessions: 0, input: 0, output: 0 };
-+								entry.cost += c;
-+								entry.sessions += 1;
-+								const b = r.usageByModel[key];
-+								entry.input += (b.uncachedInputTokens ?? 0) + (b.cacheWriteTokens ?? 0);
-+								entry.output += b.outputTokens ?? 0;
-+								byModel.set(key, entry);
-+							}
++					// [billing-fix] 按模型/按日汇总来自服务端 session.cost(与明细
++					// 同口径,按请求时刻与请求日),不再按投影与会话更新时间近似。
++					const fold = costMap.get(r.sessionId);
++					if (fold !== void 0) {
++						for (const key of Object.keys(fold.byModel)) {
++							const m = fold.byModel[key];
++							const entry = byModel.get(key) ?? { cost: 0, sessions: 0, input: 0, output: 0 };
++							entry.cost += m.cost;
++							entry.sessions += 1;
++							entry.input += m.input + m.write;
++							entry.output += m.output;
++							byModel.set(key, entry);
++						}
++						for (const dayKey of Object.keys(fold.byDay)) {
++							const d = fold.byDay[dayKey];
++							const day = byDay.get(dayKey) ?? { cost: 0, input: 0, output: 0 };
++							day.cost += d.cost;
++							day.input += d.input + d.write;
++							day.output += d.output;
++							byDay.set(dayKey, day);
 +						}
 +					}
-+					const dayKey = new Date(r.updatedAt).toISOString().slice(0, 10);
-+					const day = byDay.get(dayKey) ?? { sessions: 0, cost: 0, input: 0, output: 0 };
-+					day.sessions += 1;
-+					day.cost += r.cost ?? 0;
-+					day.input += r.usage !== void 0 ? billedInputTokens(r.usage) : 0;
-+					day.output += r.usage !== void 0 ? r.usage.outputTokens : 0;
-+					byDay.set(dayKey, day);
 +				}
 +			}
 +			const modelEntries = [...byModel.entries()].sort((a, b) => b[1].cost - a[1].cost);
@@ -765,10 +813,10 @@
 +					children: r.turns === void 0 || r.steps === void 0 ? dash : `${r.turns} · ${r.steps}`
 +				}), (0, react_jsx_runtime.jsx)("td", {
 +					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
-+					children: r.usage === void 0 ? dash : formatTokens(billedInputTokens(r.usage))
++					children: r.input === void 0 ? dash : formatTokens(r.input)
 +				}), (0, react_jsx_runtime.jsx)("td", {
 +					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
-+					children: r.usage === void 0 ? dash : formatTokens(r.usage.outputTokens)
++					children: r.output === void 0 ? dash : formatTokens(r.output)
 +				}), (0, react_jsx_runtime.jsx)("td", {
 +					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
 +					children: r.cost === null || r.cost <= 0 ? dash : r.subCost > 0 ? `${formatYuan(r.cost)}${t("billing.attrSub", { cost: formatYuan(r.subCost) })}` : formatYuan(r.cost)
@@ -1045,9 +1093,10 @@
 +		const COST_DONUT_CIRCUMFERENCE = 2 * Math.PI * COST_DONUT_RADIUS;
 +		/**
 +		* Vertical bar chart for per-turn costs: one column per turn, fill height
-+		* proportional to cost. The page size adapts to the container width so the
-+		* bars roughly fill the row while keeping side margins (centered feel);
-+		* the pager only renders when there is more than one page.
++		* proportional to cost, in the original turn order (no cost sorting). The
++		* page size adapts to the container width so the bars roughly fill the row
++		* while keeping side margins (centered feel); the pager only renders when
++		* there is more than one page.
 +		*/
 +		function CostTurnChart({ rows, t, pageSize = 10 }) {
 +			const chartRef = (0, react.useRef)(null);
@@ -1072,23 +1121,28 @@
 +			// 柱宽 34px + 间隔 1/3 柱宽；按可用宽度（两侧各留 ~40px）求每页柱子数。
 +			const pitch = 34 + 34 / 3;
 +			const effPageSize = fit > 0 ? Math.max(4, Math.min(40, Math.round((fit - 80) / pitch))) : pageSize;
-+			// 按费用降序排列（费用高→低），阶梯式对比最直观；相同费用保持原有先后顺序。
-+			const ordered = [...rows].sort((a, b) => b.value - a.value);
++			// 保持原有轮次顺序，不做费用排序。
++			const ordered = rows;
 +			const total = Math.max(1, Math.ceil(ordered.length / effPageSize));
 +			const cur = Math.min(page, total - 1);
 +			const slice = ordered.slice(cur * effPageSize, cur * effPageSize + effPageSize);
 +			if (slice.length === 0) return null;
 +			const max = slice.reduce((m, r) => Math.max(m, Math.max(0, r.value)), 0);
 +			const pos = slice.map((r) => Math.max(0, r.value)).filter((v) => v > 0);
-+			const lo = pos.length > 0 ? Math.min(...pos) : 0;
-+			const span = max > lo ? Math.log(max / lo) : 0;
-+			// 对数刻度（锚定最小值）：柱高 = 2% + 98% · ln(v/min) ÷ ln(max/min)。
-+			// 费用集中时也能拉开明显高度差，且图表始终用满整个高度范围。
++			// 自适应线性刻度（参考 ECharts min/max 策略）：最大值/最小值不超过
++			// 5 倍时，把纵轴锚定在 [min×0.95, max×1.05]，费用接近时也能拉开
++			// 明显高度差；差距超过 5 倍则从 0 到最大值，保持真实比例。
++			const valMin = pos.length > 0 ? Math.min(...pos) : 0;
++			const valMax = pos.length > 0 ? Math.max(...pos) : 0;
++			const ratio = valMin > 0 ? valMax / valMin : Number.POSITIVE_INFINITY;
++			const yMin = ratio <= 5 ? valMin * 0.95 : 0;
++			const yMax = ratio <= 5 ? valMax * 1.05 : valMax;
++			const span = yMax - yMin;
 +			const barHeight = (v) => {
 +				if (max <= 0) return 0;
 +				if (!(v > 0)) return 2;
 +				if (span <= 0) return 100;
-+				return 2 + 98 * (Math.log(v / lo) / span);
++				return Math.max(0, Math.min(100, (v - yMin) / span * 100));
 +			};
 +			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
 +				children: [(0, react_jsx_runtime.jsx)("div", {
@@ -1249,7 +1303,10 @@
 +					cacheReadTokens: usage.cacheReadTokens ?? 0,
 +					cacheWriteTokens: usage.cacheWriteTokens ?? 0
 +				};
-+				const cost = estimateCost(buckets, typeof model === "string" ? model : null, now, customPrices) ?? 0;
++				// [billing-fix] 逐笔按请求时刻计价:每笔用事件时间判定峰谷时段,
++				// 而不是统一按打开账单的当下时刻重估历史(官方按请求时刻计费)。
++				const at = typeof event.time === "number" && event.time > 0 ? event.time : now;
++				const cost = estimateCost(buckets, typeof model === "string" ? model : null, at, customPrices) ?? 0;
 +				let line = turns.get(turn);
 +				if (line === void 0) {
 +					line = {
@@ -1291,7 +1348,9 @@
 +					cacheReadTokens: usage.cacheReadTokens ?? 0,
 +					cacheWriteTokens: usage.cacheWriteTokens ?? 0
 +				};
-+				const cost = estimateCost(buckets, typeof model === "string" ? model : null, now, customPrices) ?? 0;
++				// [billing-fix] 逐笔按请求时刻计价(与 foldTurnCosts 同一口径)。
++				const at = typeof event.time === "number" && event.time > 0 ? event.time : now;
++				const cost = estimateCost(buckets, typeof model === "string" ? model : null, at, customPrices) ?? 0;
 +				calls.push({
 +					time: event.time,
 +					turn,
@@ -1305,6 +1364,30 @@
 +				});
 +			}
 +			return calls.reverse();
++		}
++		/**
++		* [billing-fix] 拉取一个会话的全部计费明细事件(usageOnly,从最新向前翻页)。
++		* 与服务端 history 路由的 usageOnly 过滤(只返回 assistant/message usage 样本)
++		* 配合,每页 100 条 usage 事件,最多 60 页。
++		* @param api - client api。
++		* @param sessionId - 目标会话。
++		* @returns 明细事件数组、错误信息(无则 undefined)、是否因页数/条数上限截断。
++		*/
++		async function fetchUsageEntries(api, sessionId) {
++			const allEntries = [];
++			let beforeSeq;
++			let page = 0;
++			while (page < 60) {
++				page += 1;
++				const r = await api.sessions.history({ sessionId, maxMessages: 100, usageOnly: true, ...beforeSeq === void 0 ? {} : { beforeSeq } });
++				const result = r.result;
++				if (!result.ok) return { entries: allEntries, error: result.error?.message ?? "history failed", capped: false };
++				for (const e of result.value.events) allEntries.push(e);
++				if (allEntries.length >= 200000) return { entries: allEntries, error: void 0, capped: true };
++				if (!result.value.hasMore || result.value.events.length === 0) return { entries: allEntries, error: void 0, capped: false };
++				beforeSeq = result.value.events[0].event.seq;
++			}
++			return { entries: allEntries, error: void 0, capped: true };
 +		}
 +		/**
 +		* Current-session bill: detailed cost statement for ONE session, fed by
@@ -1322,12 +1405,34 @@
 +			const [turnPage, setTurnPage] = (0, react.useState)(0);
 +			const [capped, setCapped] = (0, react.useState)(false);
 +			const [failed, setFailed] = (0, react.useState)(null);
++			const lastFoldedAtRef = (0, react.useRef)(null);
++			// [billing-fix] 首次加载与打开期间周期刷新合并:列表每 5 秒轮询,仅当
++			// 会话 updatedAt 变化(有新活动)时才重新拉取明细并逐笔按请求时刻折叠,
++			// 汇总行与明细表保持同口径且追平实时用量;不活跃会话不重复拉历史。
 +			(0, react.useEffect)(() => {
 +				let cancelled = false;
 +				setRow(null);
 +				setTurns(null);
++				setCalls(null);
 +				setFailed(null);
-+				(async () => {
++				lastFoldedAtRef.current = null;
++				const refold = async () => {
++					try {
++						const { entries, error, capped: isCapped } = await fetchUsageEntries(api, sessionId);
++						if (cancelled) return;
++						if (error !== void 0) {
++							setFailed(error);
++							return;
++						}
++						const foldNow = new Date();
++						setCapped(isCapped);
++						setTurns(foldTurnCosts(entries, foldNow, costCfg.prices));
++						setCalls(foldCallLedger(entries, foldNow, costCfg.prices));
++					} catch (error) {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					}
++				};
++				const refresh = async () => {
 +					try {
 +						const { result } = await api.sessions.list({});
 +						if (cancelled) return;
@@ -1338,85 +1443,55 @@
 +						const found = (result.value.items ?? []).find((item) => item.sessionId === sessionId);
 +						if (cancelled) return;
 +						setRow(found ?? null);
-+						const allEntries = [];
-+						let beforeSeq;
-+						let capped = false;
-+						let page = 0;
-+						while (page < 60) {
-+							page += 1;
-+							let pageResult;
-+							try {
-+								const r = await api.sessions.history({
-+									sessionId,
-+									maxMessages: 100,
-+									usageOnly: true,
-+									...beforeSeq === void 0 ? {} : { beforeSeq }
-+								});
-+								pageResult = r.result;
-+							} catch (error) {
-+								setFailed(String(error?.message ?? error));
-+								break;
-+							}
-+							if (cancelled) return;
-+							if (!pageResult.ok) {
-+								setFailed(pageResult.error?.message ?? "history failed");
-+								break;
-+							}
-+							for (const e of pageResult.value.events) allEntries.push(e);
-+							if (allEntries.length >= 200000) {
-+								capped = true;
-+								break;
-+							}
-+							if (!pageResult.value.hasMore || pageResult.value.events.length === 0) break;
-+							if (page >= 60) {
-+								capped = true;
-+								break;
-+							}
-+							// beforeSeq 取当前页最旧事件的 seq（向前翻页），否则永远翻到同一页。
-+							beforeSeq = pageResult.value.events[0].event.seq;
-+						}
-+						if (!cancelled) {
-+							const foldNow = new Date();
-+							setCapped(capped);
-+							setTurns(foldTurnCosts(allEntries, foldNow, costCfg.prices));
-+							setCalls(foldCallLedger(allEntries, foldNow, costCfg.prices));
++						if (found !== void 0 && found.updatedAt !== lastFoldedAtRef.current) {
++							lastFoldedAtRef.current = found.updatedAt;
++							await refold();
 +						}
 +					} catch (error) {
 +						if (!cancelled) setFailed(String(error?.message ?? error));
 +					}
-+				})();
-+				return () => {
-+					cancelled = true;
 +				};
-+			}, [api, sessionId, costCfg.prices]);
-+			// 打开期间周期刷新汇总行：会话运行时消耗持续增长，当前会话账单卡片
-+			// 需要追平实时用量（明细表按打开时点保持不变，避免频繁重拉 history）。
-+			(0, react.useEffect)(() => {
-+				let cancelled = false;
-+				const id = setInterval(async () => {
-+					try {
-+						const { result } = await api.sessions.list({});
-+						if (cancelled || !result.ok) return;
-+						const found = (result.value.items ?? []).find((item) => item.sessionId === sessionId);
-+						if (cancelled) return;
-+						setRow(found ?? null);
-+					} catch (error) {
-+						if (!cancelled) setFailed(String(error?.message ?? error));
-+					}
-+				}, 5000);
++				refresh();
++				const id = setInterval(() => refresh(), 5000);
 +				return () => {
 +					cancelled = true;
 +					clearInterval(id);
 +				};
-+			}, [api, sessionId]);
-+			const now = new Date();
++			}, [api, sessionId, costCfg.prices]);
 +			const p = row?.projections?.values;
 +			const usage = p?.tokenUsage;
 +			const usageByModel = p?.tokenUsageByModel;
 +			const stats = p?.sessionStats;
++			// [billing-fix] summary 金额来自逐笔折叠(calls,按请求时刻计价),与
++			// 明细表同一口径;折叠未就绪(首次加载中)或明细为空时回退投影估算,
++			// 参考时刻取会话最后更新时间,不再按打开账单的当下时刻重估。
++			const now = typeof row?.updatedAt === "number" && row.updatedAt > 0 ? row.updatedAt : new Date();
 +			const price = usage !== void 0 ? resolvePrice(null, now, costCfg.prices) : null;
 +			const modelEntries = [];
-+			if (usageByModel !== void 0 && typeof usageByModel === "object") {
++			let totalCost = 0;
++			if (calls !== null && calls.length > 0) {
++				const byModel = new Map();
++				for (const c of calls) {
++					totalCost += c.cost;
++					const e = byModel.get(c.model) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
++					e.cost += c.cost;
++					e.input += c.input;
++					e.read += c.read;
++					e.write += c.write;
++					e.output += c.output;
++					byModel.set(c.model, e);
++				}
++				for (const [key, e] of byModel) modelEntries.push({
++					model: key,
++					buckets: {
++						uncachedInputTokens: e.input,
++						cacheReadTokens: e.read,
++						cacheWriteTokens: e.write,
++						outputTokens: e.output
++					},
++					cost: e.cost
++				});
++			} else if (usageByModel !== void 0 && typeof usageByModel === "object") {
 +				for (const key of Object.keys(usageByModel)) {
 +					const buckets = usageByModel[key];
 +					modelEntries.push({
@@ -1425,9 +1500,11 @@
 +						cost: estimateCost(buckets, key, now, costCfg.prices)
 +					});
 +				}
++				totalCost = modelEntries.reduce((sum, entry) => sum + (entry.cost ?? 0), 0);
++			} else if (usage !== void 0 && price !== null) {
++				totalCost = (usage.uncachedInputTokens + usage.cacheWriteTokens) * price.cacheMiss / 1e6 + usage.cacheReadTokens * price.cacheRead / 1e6 + usage.outputTokens * price.output / 1e6;
 +			}
 +			modelEntries.sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
-+			const totalCost = modelEntries.length > 0 ? modelEntries.reduce((sum, entry) => sum + (entry.cost ?? 0), 0) : usage !== void 0 && price !== null ? (usage.uncachedInputTokens + usage.cacheWriteTokens) * price.cacheMiss / 1e6 + usage.cacheReadTokens * price.cacheRead / 1e6 + usage.outputTokens * price.output / 1e6 : 0;
 +			const totalInput = usage !== void 0 ? billedInputTokens(usage) : 0;
 +			const totalOutput = usage !== void 0 ? usage.outputTokens : 0;
 +			const cacheHit = usage !== void 0 && totalInput > 0 ? Math.round(usage.cacheReadTokens / totalInput * 100) : null;
@@ -1538,7 +1615,7 @@
 +						className: CostCharts_module_css_default.chartCard,
 +						children: (0, react_jsx_runtime.jsx)(CostTurnChart, {
 +							t,
-+							rows: turns !== null ? turns.map((line) => ({ key: line.turn, label: `#${line.turn}`, value: line.cost, color: billingModelColor(line.model), tip: `${line.model} · ${line.steps}步 · ${formatYuan(line.cost)}` })) : []
++							rows: turns !== null ? turns.map((line) => ({ key: line.turn, label: `#${line.turn}`, value: line.cost, color: billingModelColorValue(line.model), tip: `${line.model} · ${line.steps}步 · ${formatYuan(line.cost)}` })) : []
 +						})
 +					}), (0, react_jsx_runtime.jsx)("div", {
 +					className: BillingView_module_css_default.tableWrap,
@@ -1826,18 +1903,19 @@
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
  		const css$18 = ".Sh0Q9G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Sh0Q9G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Sh0Q9G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Sh0Q9G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Sh0Q9G_triggerIcon{flex:none;display:inline-flex}.Sh0Q9G_triggerIcon svg{width:14px;height:14px}.Sh0Q9G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Sh0Q9G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Sh0Q9G_trigger:has(.Sh0Q9G_triggerIcon) .Sh0Q9G_triggerLabel{display:none}}.Sh0Q9G_chevronOpen{transform:rotate(180deg)}";
  		const tagId$18 = "@deepseek-ai/dsh-client-ui-conversation/PermissionSelect.module.css";
-@@ -3859,6 +5636,10 @@
+@@ -3859,6 +5712,11 @@
  											useProjection,
  											t
  										}),
 +										(0, react_jsx_runtime.jsx)(CostMeter, {
 +											useProjection,
++											useSession,
 +											t
 +										}),
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5796,674 @@
+@@ -4015,6 +5873,674 @@
  				})]
  			});
  		}
@@ -2512,7 +2590,7 @@
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
  		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +7355,10 @@
+@@ -4906,8 +7432,10 @@
  			const rest = [];
  			for (const block of content) {
  				const b = block;
@@ -2525,7 +2603,7 @@
  				else rest.push(block);
  			}
  			return {
-@@ -5170,7 +7621,7 @@
+@@ -5170,7 +7698,7 @@
  		});
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
@@ -2534,7 +2612,7 @@
  		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -5185,6 +7636,12 @@
+@@ -5185,6 +7713,12 @@
  			"callRow": "Md3f7G_callRow",
  			"turnStatusClock": "Md3f7G_turnStatusClock",
  			"flowItem": "Md3f7G_flowItem",
@@ -2547,7 +2625,7 @@
  			"scroll": "Md3f7G_scroll",
  			"hint": "Md3f7G_hint",
  			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +7697,21 @@
+@@ -5240,6 +7774,21 @@
  			});
  		});
  		//#endregion
@@ -2569,7 +2647,7 @@
  		//#region lib/types/client/chat/ChatView.js
  		/** Active column host when present; otherwise the view-local scroller. */
  		function scrollerOf(from) {
-@@ -5329,6 +7801,38 @@
+@@ -5329,6 +7878,38 @@
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -2608,7 +2686,7 @@
  		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
  			const order = useSession((s) => s.chat.order);
  			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +7868,18 @@
+@@ -5364,6 +7945,18 @@
  			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
  			const lastKey = order.at(-1) ?? null;
  			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
@@ -2627,7 +2705,7 @@
  			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
  			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
  			const toBottom = (el) => {
-@@ -5501,6 +8017,61 @@
+@@ -5501,6 +8094,61 @@
  				}
  				loadOlder();
  			};
@@ -2689,7 +2767,7 @@
  			return (0, react_jsx_runtime.jsx)("div", {
  				className: ChatView_module_css_default.root,
  				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +8102,7 @@
+@@ -5531,19 +8179,7 @@
  									children: loadingOlder ? t("loading") : t("chat.loadOlder")
  								})
  							}),
@@ -2710,7 +2788,7 @@
  							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
  								startTime: runningTurnStart,
  								t
-@@ -5827,10 +8386,102 @@
+@@ -5827,10 +8463,102 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -2760,7 +2838,7 @@
 +			"billing.expandTurn": "展开第 {turn} 轮明细",
 +			"billing.collapseTurn": "收起第 {turn} 轮明细",
 +			"billing.turnBars": "每轮费用",
-+			"billing.turnScale": "按费用降序 · 对数刻度放大差异 · 悬停看明细",
++			"billing.turnScale": "按轮次顺序 · 自适应刻度放大差异 · 悬停看明细",
 +			"billing.turnPrev": "上一页",
 +			"billing.turnNext": "下一页",
 +			"billing.turnPage": "第 {page} / {total} 页",
@@ -2813,7 +2891,7 @@
  			"access.confirm.title": "确认启用 Full access？",
  			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
  			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8508,14 @@
+@@ -5857,6 +8585,14 @@
  			"chat.loadError": "历史加载失败：{message}（{code}）",
  			"chat.loadOlder": "加载更早",
  			"chat.toBottom": "回到底部",
@@ -2828,7 +2906,7 @@
  			"message.extraBlock": "附加内容块",
  			"message.contextInjection": "上下文注入",
  			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +8651,102 @@
+@@ -5992,10 +8728,102 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -2878,7 +2956,7 @@
 +			"billing.expandTurn": "Expand turn {turn}",
 +			"billing.collapseTurn": "Collapse turn {turn}",
 +			"billing.turnBars": "Cost per turn",
-+			"billing.turnScale": "Sorted by cost desc · log scale · hover for detail",
++			"billing.turnScale": "In turn order · adaptive scale · hover for detail",
 +			"billing.turnPrev": "Prev",
 +			"billing.turnNext": "Next",
 +			"billing.turnPage": "Page {page} / {total}",
@@ -2931,7 +3009,7 @@
  			"access.confirm.title": "Enable Full access?",
  			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
  			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +8773,14 @@
+@@ -6022,6 +8850,14 @@
  			"chat.loadError": "Failed to load history: {message} ({code})",
  			"chat.loadOlder": "Load earlier",
  			"chat.toBottom": "Back to bottom",
@@ -2946,7 +3024,7 @@
  			"message.extraBlock": "Extra content block",
  			"message.contextInjection": "Context injection",
  			"message.contextRecall": "Session recall",
-@@ -9460,6 +12219,7 @@
+@@ -9460,6 +12296,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -2954,7 +3032,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +12241,50 @@
+@@ -9481,6 +12318,50 @@
  					}
  				})
  			}, EnterBehaviorRow));

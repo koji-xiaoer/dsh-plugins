@@ -1,5 +1,5 @@
---- node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
-+++ node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
+--- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js.orig-balance	2026-08-14 20:27:08.283924911 +0800
++++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js	2026-08-17 02:39:34.257096492 +0800
 @@ -5293,7 +5293,8 @@
  		object({
  			sessionId: sessionIdSchema,
@@ -10,7 +10,47 @@
  		});
  		/** Complete provider/model selection. */
  		const modelSelectionSchema = object({
-@@ -5714,6 +5715,14 @@
+@@ -5373,6 +5374,39 @@
+ 			hasMore: boolean(),
+ 			projections: sessionProjectionsBlockSchema.optional()
+ 		});
++		/** [billing-fix] session.cost 单会话聚合项(byModel/byDay 为 model/day → 聚合对象)。 */
++		const sessionCostItemSchema = object({
++			sessionId: sessionIdSchema,
++			updatedAt: number(),
++			cost: number(),
++			input: number(),
++			read: number(),
++			write: number(),
++			output: number(),
++			byModel: record(string(), object({
++				cost: number(),
++				input: number(),
++				read: number(),
++				write: number(),
++				output: number()
++			})),
++			byDay: record(string(), object({
++				cost: number(),
++				input: number(),
++				read: number(),
++				write: number(),
++				output: number()
++			}))
++		});
++		/** [billing-fix] session.cost 响应:内置价表 + 会话聚合项列表。 */
++		const sessionCostValueSchema = object({
++			prices: record(string(), record(string(), object({
++				cacheRead: number(),
++				cacheMiss: number(),
++				output: number()
++			}))),
++			items: array(sessionCostItemSchema)
++		});
+ 		object({ sessionId: sessionIdSchema });
+ 		/** session.models response value. */
+ 		const sessionModelsValueSchema = object({
+@@ -5714,6 +5748,14 @@
  			attachedSessions: number().int().nonnegative(),
  			canOpenPath: boolean()
  		});
@@ -25,7 +65,15 @@
  		object({});
  		/** host.pickDirectory response value; null means the user cancelled. */
  		const hostPickDirectoryValueSchema = object({ path: string().nullable() });
-@@ -6087,6 +6096,7 @@
+@@ -6074,6 +6116,7 @@
+ 			"session.search": sessionSearchValueSchema,
+ 			"session.create": sessionCreateValueSchema,
+ 			"session.history": sessionHistoryValueSchema,
++			"session.cost": sessionCostValueSchema,
+ 			"session.models": sessionModelsValueSchema,
+ 			"session.selectModel": sessionSelectModelValueSchema,
+ 			"session.rename": sessionRenameValueSchema,
+@@ -6087,6 +6130,7 @@
  			"subagent.prompt": object({ messageId: string() }),
  			"subagent.interrupt": subagentInterruptValueSchema,
  			"host.describe": hostDescribeValueSchema,
@@ -33,7 +81,15 @@
  			"host.pickDirectory": hostPickDirectoryValueSchema,
  			"host.listDirectory": hostListDirectoryValueSchema,
  			"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -6303,6 +6313,7 @@
+@@ -6286,6 +6330,7 @@
+ 				search: (payload, signal) => this.callUnary("session.search", payload, signal),
+ 				create: (payload, signal) => this.callUnary("session.create", payload, signal),
+ 				history: (payload, signal) => this.callUnary("session.history", payload, signal),
++				cost: (payload, signal) => this.callUnary("session.cost", payload, signal),
+ 				models: (payload, signal) => this.callUnary("session.models", payload, signal),
+ 				selectModel: (payload, signal) => this.callUnary("session.selectModel", payload, signal),
+ 				rename: (payload, signal) => this.callUnary("session.rename", payload, signal),
+@@ -6303,6 +6348,7 @@
  			};
  			host = {
  				describe: (payload, signal) => this.callUnary("host.describe", payload, signal),

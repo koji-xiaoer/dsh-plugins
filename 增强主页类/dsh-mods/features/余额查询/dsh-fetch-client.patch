@@ -1,15 +1,25 @@
---- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
-+++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
-@@ -7,7 +7,7 @@
+--- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js.orig-balance	2026-08-14 20:27:08.284776238 +0800
++++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js	2026-08-17 02:39:56.687259897 +0800
+@@ -7,8 +7,8 @@
  import { RpcId } from "../api/rpc.js";
  import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from "../api/rpc.schema.js";
  import { hostFrameSchema, muxFrameSchema } from "../api/events.schema.js";
 -import { hostCreateDirectoryValueSchema, hostDescribeValueSchema, hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema, } from "../api/host.schema.js";
+-import { sessionCancelValueSchema, sessionAttachmentValueSchema, sessionCreateValueSchema, sessionForkValueSchema, sessionHistoryValueSchema, sessionListValueSchema, sessionModelsValueSchema, sessionPromptValueSchema, sessionRenameValueSchema, sessionSearchValueSchema, sessionSelectModelValueSchema, sessionUpdateQueueValueSchema, } from "../api/sessions.schema.js";
 +import { hostBalanceValueSchema, hostCreateDirectoryValueSchema, hostDescribeValueSchema, hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema, } from "../api/host.schema.js";
- import { sessionCancelValueSchema, sessionAttachmentValueSchema, sessionCreateValueSchema, sessionForkValueSchema, sessionHistoryValueSchema, sessionListValueSchema, sessionModelsValueSchema, sessionPromptValueSchema, sessionRenameValueSchema, sessionSearchValueSchema, sessionSelectModelValueSchema, sessionUpdateQueueValueSchema, } from "../api/sessions.schema.js";
++import { sessionCancelValueSchema, sessionAttachmentValueSchema, sessionCreateValueSchema, sessionCostValueSchema, sessionForkValueSchema, sessionHistoryValueSchema, sessionListValueSchema, sessionModelsValueSchema, sessionPromptValueSchema, sessionRenameValueSchema, sessionSearchValueSchema, sessionSelectModelValueSchema, sessionUpdateQueueValueSchema, } from "../api/sessions.schema.js";
  import { workspaceArchiveSessionValueSchema, workspaceCreateValueSchema, workspaceDeleteValueSchema, workspaceInsertBeforeValueSchema, workspaceInsertSessionBeforeValueSchema, workspaceListValueSchema, workspaceRenameValueSchema, } from "../api/workspace.schema.js";
  import { skillListValueSchema } from "../api/skills.schema.js";
-@@ -39,6 +39,7 @@
+ import { agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema, agentPresetReadValueSchema, agentPresetRemoveValueSchema, agentPresetSelectValueSchema, } from "../api/agent-presets.schema.js";
+@@ -26,6 +26,7 @@
+     'session.search': sessionSearchValueSchema,
+     'session.create': sessionCreateValueSchema,
+     'session.history': sessionHistoryValueSchema,
++    'session.cost': sessionCostValueSchema,
+     'session.models': sessionModelsValueSchema,
+     'session.selectModel': sessionSelectModelValueSchema,
+     'session.rename': sessionRenameValueSchema,
+@@ -39,6 +40,7 @@
      'subagent.prompt': subagentPromptValueSchema,
      'subagent.interrupt': subagentInterruptValueSchema,
      'host.describe': hostDescribeValueSchema,
@@ -17,7 +27,15 @@
      'host.pickDirectory': hostPickDirectoryValueSchema,
      'host.listDirectory': hostListDirectoryValueSchema,
      'host.createDirectory': hostCreateDirectoryValueSchema,
-@@ -261,6 +262,7 @@
+@@ -244,6 +246,7 @@
+         search: (payload, signal) => this.callUnary('session.search', payload, signal),
+         create: (payload, signal) => this.callUnary('session.create', payload, signal),
+         history: (payload, signal) => this.callUnary('session.history', payload, signal),
++        cost: (payload, signal) => this.callUnary('session.cost', payload, signal),
+         models: (payload, signal) => this.callUnary('session.models', payload, signal),
+         selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
+         rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
+@@ -261,6 +264,7 @@
      };
      host = {
          describe: (payload, signal) => this.callUnary('host.describe', payload, signal),

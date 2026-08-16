@@ -1,6 +1,64 @@
---- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
-+++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
-@@ -941,13 +941,90 @@
+--- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.orig.js	2026-08-14 17:02:41.889804920 +0800
++++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js	2026-08-17 02:37:09.956312092 +0800
+@@ -484,7 +484,56 @@
+ const sessionHistoryRequestSchema = z$1.object({
+ 	sessionId: sessionIdSchema,
+ 	beforeSeq: z$1.number().int().nonnegative().optional(),
+-	maxMessages: z$1.number().int().positive().optional()
++	maxMessages: z$1.number().int().positive().optional(),
++	// [billing-fix] 内联 schema 与散装 sessions.schema.js 同步:usageOnly 折叠模式
++	// (只返回计费所需的 assistant/message usage 样本)。此文件是打包单文件,
++	// 运行进程从它加载,散装 schema 的修改不会生效。
++	usageOnly: z$1.boolean().optional()
++});
++/**
++* [billing-fix] session.cost 请求:按请求时刻逐笔折叠的会话费用聚合。
++* sessionIds 缺省=全部主会话;prices=用户自定义价表覆盖(缺省用内置价表)。
++*/
++const sessionCostRequestSchema = z$1.object({
++	sessionIds: z$1.array(sessionIdSchema).optional(),
++	prices: z$1.record(z$1.string(), z$1.object({
++		cacheRead: z$1.number().nonnegative(),
++		cacheMiss: z$1.number().nonnegative(),
++		output: z$1.number().nonnegative()
++	})).optional()
++});
++/** session.cost 单会话聚合项(byModel/byDay 为 model/day → 聚合对象)。 */
++const sessionCostItemSchema = z$1.object({
++	sessionId: sessionIdSchema,
++	updatedAt: z$1.number(),
++	cost: z$1.number().nonnegative(),
++	input: z$1.number().nonnegative(),
++	read: z$1.number().nonnegative(),
++	write: z$1.number().nonnegative(),
++	output: z$1.number().nonnegative(),
++	byModel: z$1.record(z$1.string(), z$1.object({
++		cost: z$1.number().nonnegative(),
++		input: z$1.number().nonnegative(),
++		read: z$1.number().nonnegative(),
++		write: z$1.number().nonnegative(),
++		output: z$1.number().nonnegative()
++	})),
++	byDay: z$1.record(z$1.string(), z$1.object({
++		cost: z$1.number().nonnegative(),
++		input: z$1.number().nonnegative(),
++		read: z$1.number().nonnegative(),
++		write: z$1.number().nonnegative(),
++		output: z$1.number().nonnegative()
++	}))
++});
++/** session.cost 响应:内置价表 + 会话聚合项列表。 */
++const sessionCostValueSchema = z$1.object({
++	prices: z$1.record(z$1.string(), z$1.record(z$1.string(), z$1.object({
++		cacheRead: z$1.number(),
++		cacheMiss: z$1.number(),
++		output: z$1.number()
++	}))),
++	items: z$1.array(sessionCostItemSchema)
+ });
+ /** Complete provider/model selection. */
+ const modelSelectionSchema = z$1.object({
+@@ -941,13 +990,90 @@
  			mediaType: item.part.mediaType,
  			...item.part.name === void 0 ? {} : { name: item.part.name }
  		});
@@ -95,7 +153,136 @@
  /** Search durable content for an image reference, including nested tool results. */
  function imageBlockIn(content, match) {
  	if (!Array.isArray(content)) return void 0;
-@@ -2633,12 +2710,16 @@
+@@ -2040,6 +2166,128 @@
+ 	* @returns the attached session, or the inspected detached header and events.
+ 	* @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
+ 	*/
++	//#region session.cost —— 服务端费用折叠(按请求时刻逐笔计价)
++	/**
++	* [billing-fix] 内置价表(¥/百万 token)。与 dsh-client-ui-conversation 的
++	* ESTIMATED_PRICES 同步:统计栏/设置面板仍在客户端用同一份内置价,自定义
++	* 价表由 session.cost 请求的 prices 参数覆盖。修改时必须两边同步。
++	*/
++	const ESTIMATED_PRICES = {
++		"deepseek-v4-flash": {
++			current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
++			peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
++			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 }
++		},
++		"deepseek-v4-pro": {
++			current: { cacheRead: 0.025, cacheMiss: 3, output: 6 },
++			peak: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
++			offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
++		}
++	};
++	const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
++	/** 峰谷切换时刻:2026-08-17 00:00 北京时间。 */
++	const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");
++	/**
++	* 北京时区峰谷判定:"current"(切换日前) / "peak"(09-12、14-18 点) / "offpeak"。
++	*/
++	function pricingPeriod(now) {
++		if (now < PEAK_PRICE_SINCE) return "current";
++		const hour = Number(new Intl.DateTimeFormat("en-US", {
++			hour: "numeric",
++			hour12: false,
++			timeZone: "Asia/Shanghai"
++		}).format(now));
++		return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
++	}
++	/**
++	* 某模型在某个时刻的生效价表:内置价(按时段)+ 自定义价表覆盖。
++	* @param model - 模型名(未知模型回落 v4-flash)。
++	* @param now - 计价参考时刻(逐笔用请求时刻)。
++	* @param customPrices - 用户自定义价表(可无)。
++	* @returns 三档单价(¥/百万 token)。
++	*/
++	function priceSetFor(model, now, customPrices) {
++		const base = ESTIMATED_PRICES[model] ?? ESTIMATED_PRICES[ESTIMATED_FALLBACK_MODEL];
++		const period = pricingPeriod(now);
++		const p = base[period];
++		const custom = customPrices?.[model];
++		if (custom === void 0) return p;
++		return {
++			cacheRead: custom.cacheRead ?? p.cacheRead,
++			cacheMiss: custom.cacheMiss ?? p.cacheMiss,
++			output: custom.output ?? p.output
++		};
++	}
++	/**
++	* 一笔 usage 的费用:未命中输入(含缓存写入)按 cacheMiss 价,命中按
++	* cacheRead 价,输出按 output 价,单位换算为元。
++	*/
++	function costOfBuckets(buckets, model, at, customPrices) {
++		const p = priceSetFor(model, at, customPrices);
++		return ((buckets.input + buckets.write) * p.cacheMiss + buckets.read * p.cacheRead + buckets.output * p.output) / 1e6;
++	}
++	/**
++	* 将事件流折叠为会话级费用聚合:总额、按模型、按请求日。
++	* 只消费 assistant/message 的最终 usage 样本,逐笔按 event.time 判定峰谷
++	* 时段(与明细弹窗的 foldTurnCosts/foldCallLedger 同一口径)。
++	* @param events - 会话事件流(attached 内存或 detached 日志)。
++	* @param customPrices - 用户自定义价表覆盖(可无)。
++	* @returns 聚合结果(byModel/byDay 为普通对象,可直接 JSON 序列化)。
++	*/
++	function foldCostEvents(events, customPrices) {
++		let cost = 0;
++		let input = 0;
++		let read = 0;
++		let write = 0;
++		let output = 0;
++		const byModel = new Map();
++		const byDay = new Map();
++		for (const event of events) {
++			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
++			const usage = event.data.usage;
++			const model = typeof event.data.message?.source?.model === "string" && event.data.message.source.model !== "" ? event.data.message.source.model : ESTIMATED_FALLBACK_MODEL;
++			const at = typeof event.time === "number" && event.time > 0 ? event.time : Date.now();
++			const buckets = {
++				input: usage.inputTokens ?? 0,
++				read: usage.cacheReadTokens ?? 0,
++				write: usage.cacheWriteTokens ?? 0,
++				output: usage.outputTokens ?? 0
++			};
++			const c = costOfBuckets(buckets, model, at, customPrices);
++			cost += c;
++			input += buckets.input;
++			read += buckets.read;
++			write += buckets.write;
++			output += buckets.output;
++			const m = byModel.get(model) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
++			m.cost += c;
++			m.input += buckets.input;
++			m.read += buckets.read;
++			m.write += buckets.write;
++			m.output += buckets.output;
++			byModel.set(model, m);
++			const dayKey = new Date(event.time ?? at).toISOString().slice(0, 10);
++			const d = byDay.get(dayKey) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
++			d.cost += c;
++			d.input += buckets.input;
++			d.read += buckets.read;
++			d.write += buckets.write;
++			d.output += buckets.output;
++			byDay.set(dayKey, d);
++		}
++		return {
++			cost,
++			input,
++			read,
++			write,
++			output,
++			byModel: Object.fromEntries(byModel),
++			byDay: Object.fromEntries(byDay)
++		};
++	}
++	/** session.cost 服务端缓存:sessionId → { at(updatedAt), pk(价表版本), fold }。 */
++	const costCache = /* @__PURE__ */ new Map();
++	//#endregion
+ 	async function historySourceFor(sessionId) {
+ 		const attached = ctx.sessions.get(sessionId);
+ 		if (attached !== void 0) return {
+@@ -2633,12 +2881,16 @@
  				});
  			},
  			async history(request) {
@@ -114,7 +301,54 @@
  					return ok(request, {
  						events: page.events,
  						hasMore: page.hasMore,
-@@ -2684,7 +2765,7 @@
+@@ -2657,6 +2909,46 @@
+ 					});
+ 				}
+ 			},
++			/**
++			* [billing-fix] 全会话费用聚合:服务端按请求时刻逐笔折叠(与客户端明细
++			* 弹窗同一口径),总账单页面一行一次请求拿全量,不再由浏览器逐会话拉
++			* 明细折叠。折叠结果按 (updatedAt, 价表) 缓存,会话无新增活动或价表
++			* 未变时直接复用,5 秒轮询零成本。
++			*/
++			async cost(request, signal) {
++				const { sessionIds, prices } = request.payload;
++				const customPrices = prices ?? {};
++				const priceKey = Object.keys(customPrices).length === 0 ? "" : JSON.stringify(customPrices);
++				try {
++					const summaries = await listVisibleSessionSummaries(signal);
++					const targets = sessionIds === void 0 || sessionIds.length === 0 ? summaries : summaries.filter((s) => sessionIds.includes(s.sessionId));
++					const items = [];
++					for (const s of targets) {
++						if (s.origin === "subagent") continue;
++						const cached = costCache.get(s.sessionId);
++						if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey) {
++							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...cached.fold });
++							continue;
++						}
++						try {
++							const source = await historySourceFor(s.sessionId);
++							const events = source.kind === "attached" ? source.session.events : source.events;
++							const fold = foldCostEvents(events, customPrices);
++							costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold });
++							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...fold });
++						} catch (error) {
++							ctx.logger.warn(`session.cost: fold failed for "${s.sessionId}": ${String(error)}`);
++						}
++					}
++					return ok(request, { prices: ESTIMATED_PRICES, items });
++				} catch (error) {
++					return err(request, {
++						code: "internal",
++						message: `cost summary unavailable: ${String(error)}`,
++						details: {}
++					});
++				}
++			},
+ 			async models(request) {
+ 				const { sessionId } = request.payload;
+ 				const found = await agentFor(sessionId);
+@@ -2684,7 +2976,7 @@
  						});
  						if ([...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep].some((message) => contentHasImage(message.content)) || messagesHaveImage(found.agent.session.deriveMessages())) {
  							const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model);
@@ -123,7 +357,7 @@
  								code: "model-unavailable",
  								message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
  								details: {
-@@ -2841,7 +2922,7 @@
+@@ -2841,7 +3133,7 @@
  						if (hasImage) {
  							const current = selectionFor(agent).current;
  							const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);
@@ -132,7 +366,7 @@
  								code: "attachment-error",
  								message: `Model "${current.model}" does not support image input.`,
  								details: { reason: "MODEL_DOES_NOT_SUPPORT_IMAGES" }
-@@ -3204,6 +3285,38 @@
+@@ -3204,6 +3496,38 @@
  					canOpenPath: canOpenPaths()
  				}));
  			},
@@ -171,7 +405,7 @@
  			async pickDirectory(request, signal) {
  				const capability = ctx.directoryPicker.capability();
  				if (capability.kind !== "native") return err(request, {
-@@ -4219,6 +4332,16 @@
+@@ -4219,6 +4543,16 @@
  	attachedSessions: z$1.number().int().nonnegative(),
  	canOpenPath: z$1.boolean()
  });
@@ -188,7 +422,18 @@
  /** host.pickDirectory request payload (empty object literal). */
  const hostPickDirectoryRequestSchema = z$1.object({});
  /** host.pickDirectory response value; null means the user cancelled. */
-@@ -4735,6 +4858,10 @@
+@@ -4683,6 +5017,10 @@
+ 		schema: sessionHistoryRequestSchema,
+ 		invoke: (api, r) => api.sessions.history(r)
+ 	},
++	"session.cost": {
++		schema: sessionCostRequestSchema,
++		invoke: (api, r, signal) => api.sessions.cost(r, signal)
++	},
+ 	"session.models": {
+ 		schema: sessionModelsRequestSchema,
+ 		invoke: (api, r) => api.sessions.models(r)
+@@ -4735,6 +5073,10 @@
  		schema: hostDescribeRequestSchema,
  		invoke: (api, r) => api.host.describe(r)
  	},
@@ -199,7 +444,7 @@
  	"host.pickDirectory": {
  		schema: hostPickDirectoryRequestSchema,
  		invoke: (api, r, signal) => api.host.pickDirectory(r, signal)
-@@ -5256,6 +5383,7 @@
+@@ -5256,6 +5598,7 @@
  	"subagent.prompt": subagentPromptValueSchema,
  	"subagent.interrupt": subagentInterruptValueSchema,
  	"host.describe": hostDescribeValueSchema,
@@ -207,7 +452,7 @@
  	"host.pickDirectory": hostPickDirectoryValueSchema,
  	"host.listDirectory": hostListDirectoryValueSchema,
  	"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -5472,6 +5600,7 @@
+@@ -5472,6 +5815,7 @@
  	};
  	host = {
  		describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
