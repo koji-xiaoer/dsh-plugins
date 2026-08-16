@@ -42,12 +42,12 @@ dsh-mods/
 仓库副本可用于异地恢复：
 
 ```bash
-DSH_PATCH_DIR=<本仓库>/dsh-mods/features/余额查询 bash dsh-mods/scripts/reapply-dsh-mods.sh 2>/dev/null \
-  || DSH_PATCH_DIR=<本仓库>/dsh-mods/features/会话完成提醒 bash dsh-mods/scripts/reapply-dsh-mods.sh ...
+DSH_PATCH_DIR=<本仓库>/增强主页类/dsh-mods/features/余额查询 bash dsh-mods/scripts/reapply-dsh-mods.sh 2>/dev/null \
+  || DSH_PATCH_DIR=<本仓库>/增强主页类/dsh-mods/features/会话完成提醒 bash dsh-mods/scripts/reapply-dsh-mods.sh ...
 ```
 
 > 注意：`reapply-dsh-mods.sh` 按补丁清单逐个应用，副本恢复时需按脚本内清单把各功能目录的补丁
-> 汇总到同一 PATCH_DIR（`find dsh-mods/features -name '*.patch' -exec cp {} <dir>/ \;`）再执行。
+> 汇总到同一 PATCH_DIR（`find 增强主页类/dsh-mods/features -name '*.patch' -exec cp {} <dir>/ \;`）再执行。
 
 重放后需重启服务：`systemctl --user restart dsh-web`。
 
