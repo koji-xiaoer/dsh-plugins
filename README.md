@@ -28,7 +28,7 @@ dsh-plugins/
 本仓库是**公开**仓库：任何密钥一旦提交即视为泄露，必须立即吊销。提交前强制遵守：
 
 1. **每次提交前运行扫描**：`scripts/check-secrets.sh --all`
-   - 退出码 `1`（CRITICAL：私钥、GitHub/GitLab/OpenAI/Slack/AWS/Google 等已知 token 格式、硬编码的 Authorization、URL 内嵌账号密码）→ **禁止提交**，将密钥替换为 `<YOUR_XXX>` 占位符；
+   - 退出码 `1`（CRITICAL：私钥、`sk-` 开头的 DeepSeek/OpenAI 等平台 key、智谱 GLM 的 `<32位hex>.<密钥段>` 格式、JWT、百度 `bce-v3/ALTAK`、腾讯 `AKID`、GitHub/GitLab/Slack/AWS/Google token、硬编码的 Authorization、URL 内嵌账号密码）→ **禁止提交**，将密钥替换为 `<YOUR_XXX>` 占位符；
    - 退出码 `2`（WARNING：32/40 位十六进制串、`password`/`api_key`/`secret` 等敏感字段的赋值、`Bearer xxx` 等）→ **逐条人工审查**；
    - 确认为误报的，将 `相对路径:整行内容` 追加到 `scripts/secret-allowlist.txt`，并写一行 `# 理由`；
 2. **插件源码规则**：不得硬编码任何密钥/token，一律使用 `<YOUR_XXX_TOKEN>` 占位符，运行时从环境变量或独立配置文件读取；

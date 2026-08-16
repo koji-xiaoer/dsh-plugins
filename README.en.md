@@ -27,7 +27,7 @@ dsh-plugins/
 
 This repository is **public** — any committed secret must be treated as leaked and revoked immediately.
 
-- Run `scripts/check-secrets.sh --all` before every push: exit `1` (CRITICAL, e.g. private keys, known token formats, hardcoded Authorization, credentials in URLs) blocks the commit; exit `2` (WARNING, e.g. 32/40-hex strings, assignments to sensitive fields like `password`/`api_key`) requires case-by-case manual review.
+- Run `scripts/check-secrets.sh --all` before every push: exit `1` (CRITICAL, e.g. private keys, `sk-`-prefixed DeepSeek/OpenAI keys, Zhipu GLM `<32hex>.<secret>` format, JWTs, Baidu `bce-v3/ALTAK`, Tencent `AKID`, GitHub/GitLab/Slack/AWS/Google tokens, hardcoded Authorization, credentials in URLs) blocks the commit; exit `2` (WARNING, e.g. 32/40-hex strings, assignments to sensitive fields like `password`/`api_key`) requires case-by-case manual review.
 - False positives go into `scripts/secret-allowlist.txt` as `relative/path:exact-line-content` with a `# reason` comment. CRITICAL hits are never allowlisted.
 - Plugin sources must never hardcode secrets: use `<YOUR_XXX_TOKEN>` placeholders and read real values from environment/config at runtime.
 - A pre-commit hook is enabled via `git config core.hooksPath hooks`.

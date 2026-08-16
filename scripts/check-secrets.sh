@@ -23,6 +23,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ALLOWLIST="${ALLOWLIST:-$ROOT/scripts/secret-allowlist.txt}"
 
 # ---- CRITICAL: 确定的密钥，命中即禁止提交 ------------------------------------
+# 已知平台 key 格式:
+#   DeepSeek / OpenAI / Moonshot / Qwen / SiliconFlow 等: sk- 开头
+#   智谱 GLM: <32位hex>.<密钥段>
+#   JWT: eyJ 开头三段式
+#   百度千帆: bce-v3/ALTAK- 前缀
+#   腾讯云: AKID 前缀
+#   GitHub / GitLab / Slack / AWS / Google / 硬编码 Authorization / URL 内嵌账号密码
 CRITICAL_PATTERNS=(
   '-----BEGIN [A-Z0-9 ]*PRIVATE[[:space:]]KEY-----'
   '-----BEGIN OPENSSH[[:space:]]PRIVATE[[:space:]]KEY-----'
@@ -32,13 +39,17 @@ CRITICAL_PATTERNS=(
   'xox[baprs]-[0-9A-Za-z-]{10,}'
   'AKIA[0-9A-Z]{16}'
   'AIza[0-9A-Za-z_-]{30,}'
+  '\b[0-9a-fA-F]{32}\.[A-Za-z0-9+/=_-]{16,}\b'
+  'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
+  'bce-v3/ALTAK[A-Za-z0-9+/=_-]{10,}'
+  'AKID[A-Za-z0-9]{13,}'
   "(Authorization|auth|token)[[:space:]]*[:=][[:space:]]*[\"']?(Bearer[[:space:]]+)?[A-Za-z0-9+/=_-]{20,}"
   '[a-zA-Z][a-zA-Z0-9+.-]*://[^/[:space:]]+:[^/@[:space:]]+@'
 )
 
 # ---- WARNING: 可能敏感，需人工审查 -------------------------------------------
 WARNING_PATTERNS=(
-  "(password|passwd|pass_word|pwd)[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"]{6,}"
+  "(password|passwd|pass_word)[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"]{6,}"
   "(secret|api[_-]?key|apikey|access[_-]?key|client[_-]?secret)[[:space:]]*[:=][[:space:]]*[\"'][^[:space:]\"]{6,}"
   '(Bearer|Basic)[[:space:]]+[A-Za-z0-9+/=_-]{16,}'
   '(mongodb(\+srv)?|redis|postgres|mysql)://[^[:space:]]+:[^/@[:space:]]+@'
@@ -98,7 +109,7 @@ scan() {
         fi
         printf '[%s] %s:%s  %s\n' "$level" "$rel" "$lineno" "$(printf '%s' "$content" | cut -c1-90)"
         if [[ "$level" == "CRITICAL" ]]; then ((CRIT++)); else ((WARN++)); fi
-      done < <(grep -En -- "$pat" "$file" 2>/dev/null || true)
+      done < <(grep -Eni -- "$pat" "$file" 2>/dev/null || true)
     done
   done
 }
