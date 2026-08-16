@@ -1711,7 +1711,7 @@
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5670,354 @@
+@@ -4015,6 +5670,535 @@
  				})]
  			});
  		}
@@ -1946,6 +1946,93 @@
 +				localStorage.setItem(key, value ? "1" : "0");
 +			} catch (error) {}
 +		}
++		/** Read the selected completion-sound source; unknown values fall back to chime. */
++		function readNotifySource() {
++			try {
++				const value = localStorage.getItem("dsh.notify.sound.source");
++				return value === "bell" || value === "custom" ? value : "chime";
++			} catch (error) {
++				return "chime";
++			}
++		}
++		/** Persist the selected completion-sound source. */
++		function writeNotifySource(source) {
++			try {
++				localStorage.setItem("dsh.notify.sound.source", source);
++			} catch (error) {}
++		}
++		/** Read the uploaded custom sound as a data URL (null when absent). */
++		function readNotifyData() {
++			try {
++				return localStorage.getItem("dsh.notify.sound.data") || null;
++			} catch (error) {
++				return null;
++			}
++		}
++		/** Persist or clear the uploaded custom sound data URL. */
++		function writeNotifyData(data) {
++			try {
++				if (data === null) localStorage.removeItem("dsh.notify.sound.data");
++				else localStorage.setItem("dsh.notify.sound.data", data);
++			} catch (error) {}
++		}
++		/** Read the uploaded file's display name ("" when absent). */
++		function readNotifyName() {
++			try {
++				return localStorage.getItem("dsh.notify.sound.name") || "";
++			} catch (error) {
++				return "";
++			}
++		}
++		/** Persist or clear the uploaded file's display name. */
++		function writeNotifyName(name) {
++			try {
++				if (name === "") localStorage.removeItem("dsh.notify.sound.name");
++				else localStorage.setItem("dsh.notify.sound.name", name);
++			} catch (error) {}
++		}
++		/** Preview one completion sound from a user gesture (unlocked audio). */
++		function playPreviewSound(source, data) {
++			if (source === "custom" && data !== null && data !== "") {
++				try {
++					const audio = new Audio(data);
++					audio.volume = 0.8;
++					const play = audio.play();
++					if (play !== void 0) play.catch(() => {});
++				} catch (error) {}
++				return;
++			}
++			if (typeof AudioContext === "undefined" && typeof webkitAudioContext === "undefined") return;
++			try {
++				const Ctor = typeof AudioContext !== "undefined" ? AudioContext : webkitAudioContext;
++				const audio = new Ctor();
++				const notes = source === "bell" ? [[880, 0, 0.35], [1318.51, 0.18, 0.55]] : [[659.25, 0, 0.45], [880, 0.28, 0.8]];
++				const wave = source === "bell" ? "triangle" : "sine";
++				const play = () => {
++					const now = audio.currentTime;
++					for (const [freq, at, dur] of notes) {
++						const osc = audio.createOscillator();
++						const gain = audio.createGain();
++						osc.type = wave;
++						osc.frequency.value = freq;
++						gain.gain.setValueAtTime(0.0001, now + at);
++						gain.gain.exponentialRampToValueAtTime(0.12, now + at + 0.025);
++						gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
++						osc.connect(gain);
++						gain.connect(audio.destination);
++						osc.start(now + at);
++						osc.stop(now + at + dur + 0.05);
++					}
++					window.setTimeout(() => {
++						audio.close().catch(() => {});
++					}, 2000);
++				};
++				if (audio.state === "suspended") audio.resume().then(play).catch(() => {});
++				else play();
++			} catch (error) {}
++		}
++		/** Max size of an uploaded custom sound (1 MB). */
++		const NOTIFY_MAX_BYTES = 1024 * 1024;
 +		/**
 +		* General Settings row for session-completion alerts: two card rows
 +		* with switch toggles for the completion chime and the dynamic page
@@ -1955,6 +2042,39 @@
 +		function NotifyRow({ t }) {
 +			const [sound, setSound] = (0, react.useState)(() => readNotifyPref("dsh.notify.sound"));
 +			const [dynamicTitle, setDynamicTitle] = (0, react.useState)(() => readNotifyPref("dsh.notify.title"));
++			const [source, setSource] = (0, react.useState)(() => readNotifySource());
++			const [customData, setCustomData] = (0, react.useState)(() => readNotifyData());
++			const [fileName, setFileName] = (0, react.useState)(() => readNotifyName());
++			const [pickError, setPickError] = (0, react.useState)(null);
++			const pickFile = (event) => {
++				const file = event.target.files && event.target.files[0];
++				event.target.value = "";
++				if (!file) return;
++				if (file.size > NOTIFY_MAX_BYTES) {
++					setPickError(t("settings.notify.customTooLarge"));
++					return;
++				}
++				const reader = new FileReader();
++				reader.onload = () => {
++					const data = String(reader.result);
++					setCustomData(data);
++					writeNotifyData(data);
++					setFileName(file.name);
++					writeNotifyName(file.name);
++					setPickError(null);
++				};
++				reader.onerror = () => {
++					setPickError(t("settings.notify.customReadError"));
++				};
++				reader.readAsDataURL(file);
++			};
++			const removeCustom = () => {
++				setCustomData(null);
++				writeNotifyData(null);
++				setFileName("");
++				writeNotifyName("");
++				setPickError(null);
++			};
 +			return (0, react_jsx_runtime.jsxs)("div", {
 +				className: CostEstimateRow_module_css_default.card,
 +				children: [(0, react_jsx_runtime.jsx)("div", {
@@ -2014,6 +2134,67 @@
 +								})]
 +							})]
 +						})]
++					}), sound && (0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.notifyRow,
++						children: [(0, react_jsx_runtime.jsx)("div", {
++							className: CostEstimateRow_module_css_default.notifyText,
++							children: [(0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyTitle,
++								children: t("settings.notify.soundSource")
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyDesc,
++								children: t("settings.notify.soundSourceDesc")
++							}), (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsxs)("div", {
++									className: CostEstimateRow_module_css_default.segmented,
++									children: [["chime", t("settings.notify.sourceChime")], ["bell", t("settings.notify.sourceBell")], ["custom", t("settings.notify.sourceCustom")]].map(([value, label]) => (0, react_jsx_runtime.jsx)("button", {
++										type: "button",
++										className: CostEstimateRow_module_css_default.segBtn + (source === value ? " " + CostEstimateRow_module_css_default.segBtnActive : ""),
++										onClick: () => {
++											setSource(value);
++											writeNotifySource(value);
++											setPickError(null);
++										},
++										children: label
++									}, value))
++								}), (0, react_jsx_runtime.jsx)("button", {
++									type: "button",
++									className: CostEstimateRow_module_css_default.resetBtn,
++									onClick: () => {
++										playPreviewSound(source, customData);
++									},
++									children: t("settings.notify.customPreview")
++								})]
++							}), source === "custom" && (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsxs)("label", {
++									className: CostEstimateRow_module_css_default.resetBtn,
++									style: {
++										cursor: "pointer"
++									},
++									children: [t("settings.notify.customPick"), (0, react_jsx_runtime.jsx)("input", {
++										type: "file",
++										accept: ".mp3,.wav,.ogg,.webm,audio/*",
++										style: {
++											display: "none"
++										},
++										onChange: pickFile
++									})]
++								}), fileName !== "" && (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.footnote,
++									children: fileName
++								}), customData !== null && (0, react_jsx_runtime.jsx)("button", {
++									type: "button",
++									className: CostEstimateRow_module_css_default.resetBtn,
++									onClick: removeCustom,
++									children: t("settings.notify.customRemove")
++								})]
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.footnote,
++								children: pickError !== null ? pickError : t("settings.notify.customFormat")
++							})]
++						})]
 +					}), (0, react_jsx_runtime.jsx)("div", {
 +						className: CostEstimateRow_module_css_default.notifyDivider
 +					}), (0, react_jsx_runtime.jsxs)("div", {
@@ -2066,7 +2247,7 @@
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
  		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +6909,10 @@
+@@ -4906,8 +7090,10 @@
  			const rest = [];
  			for (const block of content) {
  				const b = block;
@@ -2079,7 +2260,7 @@
  				else rest.push(block);
  			}
  			return {
-@@ -5170,7 +7175,7 @@
+@@ -5170,7 +7356,7 @@
  		});
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
@@ -2088,7 +2269,7 @@
  		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -5185,6 +7190,12 @@
+@@ -5185,6 +7371,12 @@
  			"callRow": "Md3f7G_callRow",
  			"turnStatusClock": "Md3f7G_turnStatusClock",
  			"flowItem": "Md3f7G_flowItem",
@@ -2101,7 +2282,7 @@
  			"scroll": "Md3f7G_scroll",
  			"hint": "Md3f7G_hint",
  			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +7251,21 @@
+@@ -5240,6 +7432,21 @@
  			});
  		});
  		//#endregion
@@ -2123,7 +2304,7 @@
  		//#region lib/types/client/chat/ChatView.js
  		/** Active column host when present; otherwise the view-local scroller. */
  		function scrollerOf(from) {
-@@ -5329,6 +7355,38 @@
+@@ -5329,6 +7536,38 @@
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -2162,7 +2343,7 @@
  		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
  			const order = useSession((s) => s.chat.order);
  			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +7422,18 @@
+@@ -5364,6 +7603,18 @@
  			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
  			const lastKey = order.at(-1) ?? null;
  			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
@@ -2181,7 +2362,7 @@
  			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
  			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
  			const toBottom = (el) => {
-@@ -5501,6 +7571,61 @@
+@@ -5501,6 +7752,61 @@
  				}
  				loadOlder();
  			};
@@ -2243,7 +2424,7 @@
  			return (0, react_jsx_runtime.jsx)("div", {
  				className: ChatView_module_css_default.root,
  				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +7656,7 @@
+@@ -5531,19 +7837,7 @@
  									children: loadingOlder ? t("loading") : t("chat.loadOlder")
  								})
  							}),
@@ -2264,7 +2445,7 @@
  							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
  								startTime: runningTurnStart,
  								t
-@@ -5827,10 +7940,85 @@
+@@ -5827,10 +8121,96 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -2346,11 +2527,22 @@
 +			"settings.notify.sound": "提示音",
 +			"settings.notify.dynamicTitle": "动态标题",
 +			"settings.notify.soundDesc": "会话完成时播放提示音",
++			"settings.notify.soundSource": "提示音",
++			"settings.notify.soundSourceDesc": "选择完成提示音；上传的音频保存在当前浏览器",
++			"settings.notify.sourceChime": "默认提示音",
++			"settings.notify.sourceBell": "清脆铃声",
++			"settings.notify.sourceCustom": "自定义音频",
++			"settings.notify.customPick": "选择音频文件",
++			"settings.notify.customPreview": "试听",
++			"settings.notify.customRemove": "移除",
++			"settings.notify.customFormat": "支持 MP3 / WAV / OGG / WEBM · 建议时长 ≤ 3 秒 · 文件 ≤ 1 MB",
++			"settings.notify.customTooLarge": "文件超过 1 MB，请换一个更短的音频",
++			"settings.notify.customReadError": "读取音频文件失败，请重试",
 +			"settings.notify.titleDesc": "网页标题实时显示运行状态",
  			"access.confirm.title": "确认启用 Full access？",
  			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
  			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8045,14 @@
+@@ -5857,6 +8237,14 @@
  			"chat.loadError": "历史加载失败：{message}（{code}）",
  			"chat.loadOlder": "加载更早",
  			"chat.toBottom": "回到底部",
@@ -2365,7 +2557,7 @@
  			"message.extraBlock": "附加内容块",
  			"message.contextInjection": "上下文注入",
  			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +8188,85 @@
+@@ -5992,10 +8380,96 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -2447,11 +2639,22 @@
 +			"settings.notify.sound": "Notification sound",
 +			"settings.notify.dynamicTitle": "Dynamic page title",
 +			"settings.notify.soundDesc": "Play a chime when a session completes",
++			"settings.notify.soundSource": "Sound",
++			"settings.notify.soundSourceDesc": "Pick the completion sound; uploaded audio is stored in this browser",
++			"settings.notify.sourceChime": "Default chime",
++			"settings.notify.sourceBell": "Bell",
++			"settings.notify.sourceCustom": "Custom audio",
++			"settings.notify.customPick": "Choose audio file",
++			"settings.notify.customPreview": "Preview",
++			"settings.notify.customRemove": "Remove",
++			"settings.notify.customFormat": "MP3 / WAV / OGG / WEBM · keep under 3 seconds · ≤ 1 MB",
++			"settings.notify.customTooLarge": "File exceeds 1 MB — pick a shorter clip",
++			"settings.notify.customReadError": "Could not read the audio file — please retry",
 +			"settings.notify.titleDesc": "Live session status in the page title",
  			"access.confirm.title": "Enable Full access?",
  			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
  			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +8293,14 @@
+@@ -6022,6 +8496,14 @@
  			"chat.loadError": "Failed to load history: {message} ({code})",
  			"chat.loadOlder": "Load earlier",
  			"chat.toBottom": "Back to bottom",
@@ -2466,7 +2669,7 @@
  			"message.extraBlock": "Extra content block",
  			"message.contextInjection": "Context injection",
  			"message.contextRecall": "Session recall",
-@@ -9460,6 +11739,7 @@
+@@ -9460,6 +11942,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -2474,7 +2677,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +11761,50 @@
+@@ -9481,6 +11964,50 @@
  					}
  				})
  			}, EnterBehaviorRow));
