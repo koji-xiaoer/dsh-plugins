@@ -1,0 +1,19 @@
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js
+@@ -13,6 +13,16 @@
+     attachedSessions: z.number().int().nonnegative(),
+     canOpenPath: z.boolean(),
+ });
++/** host.balance request payload (empty object literal). */
++export const hostBalanceRequestSchema = z.object({});
++/** host.balance response value. */
++export const hostBalanceValueSchema = z.object({
++    isAvailable: z.boolean(),
++    currency: z.string(),
++    totalBalance: z.number(),
++    grantedBalance: z.number(),
++    toppedUpBalance: z.number(),
++});
+ /** host.pickDirectory request payload (empty object literal). */
+ export const hostPickDirectoryRequestSchema = z.object({});
+ /** host.pickDirectory response value; null means the user cancelled. */

@@ -1,0 +1,43 @@
+--- node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
++++ node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
+@@ -5293,7 +5293,8 @@
+ 		object({
+ 			sessionId: sessionIdSchema,
+ 			beforeSeq: number().int().nonnegative().optional(),
+-			maxMessages: number().int().positive().optional()
++			maxMessages: number().int().positive().optional(),
++			usageOnly: boolean().optional()
+ 		});
+ 		/** Complete provider/model selection. */
+ 		const modelSelectionSchema = object({
+@@ -5714,6 +5715,14 @@
+ 			attachedSessions: number().int().nonnegative(),
+ 			canOpenPath: boolean()
+ 		});
++		/** host.balance response value. */
++		const hostBalanceValueSchema = object({
++			isAvailable: boolean(),
++			currency: string(),
++			totalBalance: number(),
++			grantedBalance: number(),
++			toppedUpBalance: number()
++		});
+ 		object({});
+ 		/** host.pickDirectory response value; null means the user cancelled. */
+ 		const hostPickDirectoryValueSchema = object({ path: string().nullable() });
+@@ -6087,6 +6096,7 @@
+ 			"subagent.prompt": object({ messageId: string() }),
+ 			"subagent.interrupt": subagentInterruptValueSchema,
+ 			"host.describe": hostDescribeValueSchema,
++			"host.balance": hostBalanceValueSchema,
+ 			"host.pickDirectory": hostPickDirectoryValueSchema,
+ 			"host.listDirectory": hostListDirectoryValueSchema,
+ 			"host.createDirectory": hostCreateDirectoryValueSchema,
+@@ -6303,6 +6313,7 @@
+ 			};
+ 			host = {
+ 				describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
++				balance: (payload, signal) => this.callUnary("host.balance", payload, signal),
+ 				pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
+ 				listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
+ 				createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),

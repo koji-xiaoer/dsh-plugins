@@ -1,0 +1,27 @@
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
+@@ -7,7 +7,7 @@
+ import { RpcId } from "../api/rpc.js";
+ import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from "../api/rpc.schema.js";
+ import { hostFrameSchema, muxFrameSchema } from "../api/events.schema.js";
+-import { hostCreateDirectoryValueSchema, hostDescribeValueSchema, hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema, } from "../api/host.schema.js";
++import { hostBalanceValueSchema, hostCreateDirectoryValueSchema, hostDescribeValueSchema, hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema, } from "../api/host.schema.js";
+ import { sessionCancelValueSchema, sessionAttachmentValueSchema, sessionCreateValueSchema, sessionForkValueSchema, sessionHistoryValueSchema, sessionListValueSchema, sessionModelsValueSchema, sessionPromptValueSchema, sessionRenameValueSchema, sessionSearchValueSchema, sessionSelectModelValueSchema, sessionUpdateQueueValueSchema, } from "../api/sessions.schema.js";
+ import { workspaceArchiveSessionValueSchema, workspaceCreateValueSchema, workspaceDeleteValueSchema, workspaceInsertBeforeValueSchema, workspaceInsertSessionBeforeValueSchema, workspaceListValueSchema, workspaceRenameValueSchema, } from "../api/workspace.schema.js";
+ import { skillListValueSchema } from "../api/skills.schema.js";
+@@ -39,6 +39,7 @@
+     'subagent.prompt': subagentPromptValueSchema,
+     'subagent.interrupt': subagentInterruptValueSchema,
+     'host.describe': hostDescribeValueSchema,
++    'host.balance': hostBalanceValueSchema,
+     'host.pickDirectory': hostPickDirectoryValueSchema,
+     'host.listDirectory': hostListDirectoryValueSchema,
+     'host.createDirectory': hostCreateDirectoryValueSchema,
+@@ -261,6 +262,7 @@
+     };
+     host = {
+         describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
++        balance: (payload, signal) => this.callUnary('host.balance', payload, signal),
+         // A native system dialog is user-paced and may legitimately stay open
+         // longer than the normal unary deadline. Caller/connection aborts remain.
+         pickDirectory: (payload, signal) => this.callUnary('host.pickDirectory', payload, signal, 'caller-signal-only'),

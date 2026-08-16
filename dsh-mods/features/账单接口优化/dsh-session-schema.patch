@@ -1,0 +1,11 @@
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js
+@@ -100,6 +100,8 @@
+     sessionId: sessionIdSchema,
+     beforeSeq: z.number().int().nonnegative().optional(),
+     maxMessages: z.number().int().positive().optional(),
++    /** [billing-patch] 只返回折叠计费所需的 assistant/message usage 样本，避免拉取整条原始 chunk 流。 */
++    usageOnly: z.boolean().optional(),
+ });
+ /** Complete provider/model selection. */
+ export const modelSelectionSchema = z.object({

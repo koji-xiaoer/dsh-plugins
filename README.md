@@ -17,7 +17,10 @@ DSH 的动态插件是临时运行在 DSH 进程中的 Cordis 插件，由会话
 ```
 dsh-plugins/
 ├── README.md
-└── <pluginId>/
+├── scripts/            # 提交密钥审查工具
+├── hooks/              # pre-commit 钩子
+├── dsh-mods/           # 本机 DSH 界面自定义补丁集，按功能组织（余额查询/完成提醒/费用账单/图片转文字…）
+└── <pluginId>/         # 每个动态插件一个目录（尚未创建）
     ├── README.md        # 插件用途、版本历史、运行说明
     ├── host.js          # Host 端源码（如有）
     └── client.js        # Client 端源码（如有）

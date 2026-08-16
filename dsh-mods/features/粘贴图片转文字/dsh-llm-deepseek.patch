@@ -1,0 +1,14 @@
+--- node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js
++++ node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js
+@@ -37,8 +37,10 @@
+ 	return blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
+ }
+ /** Reject core image content before any text-flattening path can silently erase it. */
++/* [image-relay-patch] image 块保留给前端渲染，适配器忽略（GLM 描述已在 text 块中） */
+ function assertTextOnly(blocks) {
+-	if (contentHasImage(blocks)) throw new LlmError("The DeepSeek chat-completions adapter does not support image content.", "UNSUPPORTED_CONTENT");
++	// image blocks are relayed to text by the host proxy; nothing to reject here
++	void blocks;
+ }
+ /** Serialize one assistant message (text + reasoning + tool calls). */
+ function serializeAssistant(message) {

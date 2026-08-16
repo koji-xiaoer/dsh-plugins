@@ -1,0 +1,182 @@
+--- node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js
++++ node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js
+@@ -7791,6 +7791,165 @@
+ 			if (options.length > 2) return "question";
+ 			return options.some((option) => option.label === intent.approve) ? "plan-review" : "question";
+ 		}
++		//#region dsh-notify: session-completion sound + dynamic page title (local patch)
++		/**
++		* Session-completion notification controller. Plays a Web-Audio chime and
++		* keeps the document title live (running-count blink, completion flash,
++		* completed-reminder badge) as sessions start and finish. Preferences are
++		* read/written through localStorage (`dsh.notify.sound`, `dsh.notify.title`)
++		* so the General-settings toggles in ui-conversation stay in sync without a
++		* service hop. Every DOM/audio access is guarded: this bundle also loads in
++		* non-browser test hosts.
++		*/
++		var DshNotify = class {
++			audio = null;
++			/** Base document title captured on the first browser pass. */
++			baseTitle = null;
++			/** Title render timer id; 0 while stopped. */
++			timer = 0;
++			/** Blink phase of the running indicator (●/○). */
++			blink = false;
++			/** Live running-session count driving the blink loop. */
++			running = 0;
++			/** Sessions finished since the last observation pass (reminder badge). */
++			completed = 0;
++			/** Completion flash window: { until, count } or null. */
++			flash = null;
++			/** Read a preference; absent means enabled. */
++			enabled(key) {
++				try {
++					return localStorage.getItem(key) !== "0";
++				} catch (error) {
++					return true;
++				}
++			}
++			/** Create/resume the audio context; idempotent, safe to call from gestures. */
++			ensureAudio() {
++				if (typeof window === "undefined" || (typeof AudioContext === "undefined" && typeof webkitAudioContext === "undefined")) return;
++				if (this.audio === null) {
++					const Ctor = typeof AudioContext !== "undefined" ? AudioContext : webkitAudioContext;
++					try {
++						this.audio = new Ctor();
++					} catch (error) {
++						return;
++					}
++				}
++				if (this.audio.state === "suspended") this.audio.resume().catch(() => {});
++			}
++			/** Soft two-tone completion chime synthesized with oscillators (no asset). */
++			chime() {
++				if (this.audio === null || this.audio.state !== "running") return;
++				const now = this.audio.currentTime;
++				const notes = [[659.25, 0, 0.45], [880, 0.28, 0.8]];
++				for (const [freq, at, dur] of notes) {
++					const osc = this.audio.createOscillator();
++					const gain = this.audio.createGain();
++					osc.type = "sine";
++					osc.frequency.value = freq;
++					gain.gain.setValueAtTime(0.0001, now + at);
++					gain.gain.exponentialRampToValueAtTime(0.12, now + at + 0.025);
++					gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
++					osc.connect(gain);
++					gain.connect(this.audio.destination);
++					osc.start(now + at);
++					osc.stop(now + at + dur + 0.05);
++				}
++			}
++			/** Localized title labels by browser language. */
++			labels() {
++				const zh = typeof navigator !== "undefined" && (navigator.language ?? "").toLowerCase().startsWith("zh");
++				return zh ? {
++					running: (n) => `${n} 个会话运行中`,
++					done: (n) => n > 1 ? `${n} 个会话已完成` : "会话已完成"
++				} : {
++					running: (n) => `${n} session${n === 1 ? "" : "s"} running`,
++					done: (n) => n > 1 ? `${n} sessions done` : "Session done"
++				};
++			}
++			/**
++			* Completion hook: chime for every finished session (the selected one
++			* included — the alert is for the user, and the tab may be in the
++			* background), then flash the completion title. The audio context is
++			* resumed first in case the browser suspended it while hidden.
++			* @param sessionId - the finished session id.
++			*/
++			notifyCompletion(sessionId) {
++				if (this.enabled("dsh.notify.sound")) {
++					this.ensureAudio();
++					if (this.audio !== null && this.audio.state !== "running") {
++						/* The browser may have suspended the context while the tab was
++						* hidden; resume is async, so play once it settles. */
++						this.audio.resume().then(() => {
++							this.chime();
++						}).catch(() => {});
++					} else {
++						this.chime();
++					}
++				}
++				if (this.enabled("dsh.notify.title")) {
++					this.flash = {
++						until: Date.now() + 8000,
++						count: this.flash !== null && Date.now() < this.flash.until ? this.flash.count + 1 : 1
++					};
++					this.tick();
++				}
++			}
++			/** One title render pass: running blink > completion flash > reminder badge > idle. */
++			tick() {
++				if (typeof document === "undefined") return;
++				if (this.baseTitle === null || this.baseTitle === "") this.baseTitle = document.title || "DeepSeek Harness";
++				const labels = this.labels();
++				let title = this.baseTitle;
++				if (!this.enabled("dsh.notify.title")) {
++					this.flash = null;
++					this.stopTimer();
++				} else if (this.running > 0) {
++					this.blink = !this.blink;
++					title = `${this.blink ? "●" : "○"} ${labels.running(this.running)} · ${this.baseTitle}`;
++					this.startTimer();
++				} else if (this.flash !== null && Date.now() < this.flash.until) {
++					title = `✓ ${labels.done(this.flash.count)} · ${this.baseTitle}`;
++					this.startTimer();
++				} else if (this.completed > 0) {
++					title = `✓ ${labels.done(this.completed)} · ${this.baseTitle}`;
++					this.stopTimer();
++				} else {
++					this.flash = null;
++					this.stopTimer();
++				}
++				if (document.title !== title) document.title = title;
++			}
++			/** Refresh live state from the summary set and re-render the title. */
++			refreshTitle(summaries, completed) {
++				let running = 0;
++				for (const s of summaries) if (s.running) running += 1;
++				this.running = running;
++				this.completed = completed;
++				this.tick();
++			}
++			startTimer() {
++				if (this.timer === 0) this.timer = setInterval(() => {
++					this.tick();
++				}, 800);
++			}
++			stopTimer() {
++				if (this.timer !== 0) {
++					clearInterval(this.timer);
++					this.timer = 0;
++				}
++			}
++		};
++		/** Browser singleton wired into SessionManager.syncCompletedNotifications. */
++		var dshNotify = new DshNotify();
++		if (typeof window !== "undefined") {
++			window.addEventListener("pointerdown", () => {
++				dshNotify.ensureAudio();
++			}, { capture: true });
++			window.addEventListener("keydown", () => {
++				dshNotify.ensureAudio();
++			}, { capture: true });
++		}
++		//#endregion
+ 		/** Instance cluster + frame entry + the session list. */
+ 		var SessionManager = class {
+ 			api;
+@@ -8549,11 +8708,13 @@
+ 					}
+ 					if (prev && !s.running) {
+ 						if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId);
++						dshNotify.notifyCompletion(s.sessionId);
+ 					} else if (s.running) this.completedNotifications.delete(s.sessionId);
+ 					this.prevRunning.set(s.sessionId, s.running);
+ 				}
+ 				for (const id of this.prevRunning.keys()) if (!seen.has(id)) this.prevRunning.delete(id);
+ 				for (const id of this.completedNotifications) if (!seen.has(id)) this.completedNotifications.delete(id);
++				dshNotify.refreshTitle(this.summaries, this.completedNotifications.size);
+ 			}
+ 			buildListSnapshot() {
+ 				const merged = this.summaries.map((summary) => {
