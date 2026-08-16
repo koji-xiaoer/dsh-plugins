@@ -3,6 +3,13 @@ return {
     const slots = ctx.get('slots')
     if (slots === undefined) return
 
+    // 移除原「打开配置文件」按钮（无桌面环境下本就不可用）：
+    // 覆盖 settings.action 的 open-document 席位为空实现；插件停止后自动恢复原按钮。
+    slots.inject('settings.action', () => slots.register(
+      { name: 'settings.action', id: 'open-document', order: 0 },
+      () => null
+    ))
+
     styles.insert(`
       .cfg-card {
         border-radius: 12px;
@@ -120,12 +127,15 @@ return {
       const [draft, setDraft] = React.useState('')
       const [saving, setSaving] = React.useState(false)
       const [msg, setMsg] = React.useState(null)
+      // true: 文件里没有敏感字段，明文与脱敏内容相同
+      const [noSecrets, setNoSecrets] = React.useState(false)
 
       const load = () => {
         setState((s) => ({ ...s, status: 'loading' }))
         host.call('cfg.read', {}).then((r) => {
           if (r && r.ok) {
             setState({ status: 'ready', path: r.path, text: r.text, redacted: r.redacted, error: '' })
+            setNoSecrets(r.text === r.redacted)
             setView('redacted')
             setDraft(r.redacted)
             setMsg(null)
@@ -175,7 +185,9 @@ return {
           : React.createElement('div', null,
               React.createElement('div', { className: 'cfg-path' }, state.status === 'loading' ? '加载中…' : state.path),
               view === 'reveal'
-                ? React.createElement('div', { className: 'cfg-warnbar' }, '当前显示明文密钥值，请勿在公共场合展示此页面')
+                ? React.createElement('div', { className: 'cfg-warnbar' },
+                    noSecrets ? '配置文件中未检测到敏感字段，当前显示完整内容' : '当前显示明文密钥值，请勿在公共场合展示此页面'
+                  )
                 : null,
               React.createElement('textarea', {
                 className: 'cfg-editor',
