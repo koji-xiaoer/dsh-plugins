@@ -1,0 +1,21 @@
+# ---- 密钥/凭据：禁止入库 ----
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*@token*
+secret*.txt
+!scripts/secret-allowlist.txt
+
+# ---- 系统/编辑器垃圾 ----
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/

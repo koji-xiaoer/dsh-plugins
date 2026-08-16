@@ -23,6 +23,18 @@ dsh-plugins/
     └── client.js        # Client 端源码（如有）
 ```
 
+## 提交审查（防密钥泄露）
+
+本仓库是**公开**仓库：任何密钥一旦提交即视为泄露，必须立即吊销。提交前强制遵守：
+
+1. **每次提交前运行扫描**：`scripts/check-secrets.sh --all`
+   - 退出码 `1`（CRITICAL：私钥、GitHub/GitLab/OpenAI/Slack/AWS/Google 等已知 token 格式、硬编码的 Authorization、URL 内嵌账号密码）→ **禁止提交**，将密钥替换为 `<YOUR_XXX>` 占位符；
+   - 退出码 `2`（WARNING：32/40 位十六进制串、`password`/`api_key`/`secret` 等敏感字段的赋值、`Bearer xxx` 等）→ **逐条人工审查**；
+   - 确认为误报的，将 `相对路径:整行内容` 追加到 `scripts/secret-allowlist.txt`，并写一行 `# 理由`；
+2. **插件源码规则**：不得硬编码任何密钥/token，一律使用 `<YOUR_XXX_TOKEN>` 占位符，运行时从环境变量或独立配置文件读取；
+3. **本地自动拦截**：已启用 pre-commit 钩子（`git config core.hooksPath hooks`），每次 `git commit` 自动扫描暂存区，命中即中止提交；
+4. **若怀疑密钥已泄露**：立即到 https://gitee.com/profile/personal_access_tokens 吊销对应令牌，再处理仓库历史。
+
 ## 如何使用
 
 1. 在 DSH 会话中通过 `cordis_define` 创建或更新插件

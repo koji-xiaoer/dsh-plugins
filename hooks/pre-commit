@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# 提交前密钥审查钩子 — 启用方式: git config core.hooksPath hooks
+set -u
+ROOT="$(git rev-parse --show-toplevel)"
+"$ROOT/scripts/check-secrets.sh"
