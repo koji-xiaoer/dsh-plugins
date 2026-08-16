@@ -229,7 +229,7 @@
  				children: (0, react_jsx_runtime.jsx)("div", {
  					ref: rootRef,
  					className: StatsLine_module_css_default.root,
-@@ -3058,6 +3245,1577 @@
+@@ -3058,6 +3245,1578 @@
  			});
  		}
  		//#endregion
@@ -1092,7 +1092,8 @@
 +							children: (0, react_jsx_runtime.jsx)("div", {
 +								className: CostCharts_module_css_default.turnBarFill,
 +								style: {
-+									height: `${max > 0 ? r.value / max * 100 : 0}%`,
++									// 平方根刻度：柱高 ∝ √费用，相近费用也能拉开明显差距，同时保持单调
++									height: `${max > 0 ? 2 + 98 * Math.sqrt(Math.max(0, r.value) / max) : 0}%`,
 +									...r.color === void 0 ? {} : { ["--chart-color"]: r.color }
 +								}
 +							})
@@ -1807,7 +1808,7 @@
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
  		const css$18 = ".Sh0Q9G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Sh0Q9G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Sh0Q9G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Sh0Q9G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Sh0Q9G_triggerIcon{flex:none;display:inline-flex}.Sh0Q9G_triggerIcon svg{width:14px;height:14px}.Sh0Q9G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Sh0Q9G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Sh0Q9G_trigger:has(.Sh0Q9G_triggerIcon) .Sh0Q9G_triggerLabel{display:none}}.Sh0Q9G_chevronOpen{transform:rotate(180deg)}";
  		const tagId$18 = "@deepseek-ai/dsh-client-ui-conversation/PermissionSelect.module.css";
-@@ -3859,6 +5617,10 @@
+@@ -3859,6 +5618,10 @@
  											useProjection,
  											t
  										}),
@@ -1818,7 +1819,7 @@
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5777,674 @@
+@@ -4015,6 +5778,674 @@
  				})]
  			});
  		}
@@ -2493,7 +2494,7 @@
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
  		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +7336,10 @@
+@@ -4906,8 +7337,10 @@
  			const rest = [];
  			for (const block of content) {
  				const b = block;
@@ -2506,7 +2507,7 @@
  				else rest.push(block);
  			}
  			return {
-@@ -5170,7 +7602,7 @@
+@@ -5170,7 +7603,7 @@
  		});
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
@@ -2515,7 +2516,7 @@
  		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -5185,6 +7617,12 @@
+@@ -5185,6 +7618,12 @@
  			"callRow": "Md3f7G_callRow",
  			"turnStatusClock": "Md3f7G_turnStatusClock",
  			"flowItem": "Md3f7G_flowItem",
@@ -2528,7 +2529,7 @@
  			"scroll": "Md3f7G_scroll",
  			"hint": "Md3f7G_hint",
  			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +7678,21 @@
+@@ -5240,6 +7679,21 @@
  			});
  		});
  		//#endregion
@@ -2550,7 +2551,7 @@
  		//#region lib/types/client/chat/ChatView.js
  		/** Active column host when present; otherwise the view-local scroller. */
  		function scrollerOf(from) {
-@@ -5329,6 +7782,38 @@
+@@ -5329,6 +7783,38 @@
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -2589,7 +2590,7 @@
  		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
  			const order = useSession((s) => s.chat.order);
  			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +7849,18 @@
+@@ -5364,6 +7850,18 @@
  			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
  			const lastKey = order.at(-1) ?? null;
  			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
@@ -2608,7 +2609,7 @@
  			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
  			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
  			const toBottom = (el) => {
-@@ -5501,6 +7998,61 @@
+@@ -5501,6 +7999,61 @@
  				}
  				loadOlder();
  			};
@@ -2670,7 +2671,7 @@
  			return (0, react_jsx_runtime.jsx)("div", {
  				className: ChatView_module_css_default.root,
  				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +8083,7 @@
+@@ -5531,19 +8084,7 @@
  									children: loadingOlder ? t("loading") : t("chat.loadOlder")
  								})
  							}),
@@ -2691,7 +2692,7 @@
  							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
  								startTime: runningTurnStart,
  								t
-@@ -5827,10 +8367,101 @@
+@@ -5827,10 +8368,101 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -2793,7 +2794,7 @@
  			"access.confirm.title": "确认启用 Full access？",
  			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
  			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8488,14 @@
+@@ -5857,6 +8489,14 @@
  			"chat.loadError": "历史加载失败：{message}（{code}）",
  			"chat.loadOlder": "加载更早",
  			"chat.toBottom": "回到底部",
@@ -2808,7 +2809,7 @@
  			"message.extraBlock": "附加内容块",
  			"message.contextInjection": "上下文注入",
  			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +8631,101 @@
+@@ -5992,10 +8632,101 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -2910,7 +2911,7 @@
  			"access.confirm.title": "Enable Full access?",
  			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
  			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +8752,14 @@
+@@ -6022,6 +8753,14 @@
  			"chat.loadError": "Failed to load history: {message} ({code})",
  			"chat.loadOlder": "Load earlier",
  			"chat.toBottom": "Back to bottom",
@@ -2925,7 +2926,7 @@
  			"message.extraBlock": "Extra content block",
  			"message.contextInjection": "Context injection",
  			"message.contextRecall": "Session recall",
-@@ -9460,6 +12198,7 @@
+@@ -9460,6 +12199,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -2933,7 +2934,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +12220,50 @@
+@@ -9481,6 +12221,50 @@
  					}
  				})
  			}, EnterBehaviorRow));
