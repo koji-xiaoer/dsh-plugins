@@ -1,0 +1,3306 @@
+--- client.orig.js	2026-08-14 17:02:41.892156597 +0800
++++ client.js	2026-08-18 02:20:42.246578272 +0800
+@@ -2357,6 +2357,206 @@
+ 				this.busyEnter.set(section.busyEnter);
+ 			}
+ 		};
++		/** Default cost-estimate preference: enabled, built-in prices. */
++		const DEFAULT_COST_ESTIMATE = {
++			enabled: true,
++			prices: void 0
++		};
++		/**
++		* Cost-estimate preference for the conversation stats line. Owns the
++		* enabled flag and optional per-model custom prices; `prices` stays
++		* undefined until the user edits them, so the built-in peak/off-peak
++		* tables remain authoritative by default. Mirrors ComposerSubmissionPolicy's
++		* scope-adoption pattern (durable scope, snapshot store, live adoption).
++		*/
++		var CostEstimateSettings = class {
++			store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(DEFAULT_COST_ESTIMATE);
++			host;
++			constructor(host) {
++				this.host = host;
++				if (host !== void 0) {
++					host.subscribe(() => {
++						this.adopt(host);
++					});
++					this.adopt(host);
++				}
++			}
++			adopt(host) {
++				const section = host.getSnapshot().value;
++				if (section === void 0) return;
++				const current = this.store.getSnapshot();
++				const next = {
++					enabled: typeof section.costEstimate?.enabled === "boolean" ? section.costEstimate.enabled : current.enabled,
++					prices: section.costEstimate?.prices ?? current.prices
++				};
++				if (next.enabled !== current.enabled || next.prices !== current.prices) this.store.set(next);
++			}
++			setEnabled(enabled) {
++				const current = this.store.getSnapshot();
++				this.store.set({ ...current, enabled });
++				this.host?.set("costEstimate", { ...current, enabled });
++			}
++			setPrice(model, key, value) {
++				const current = this.store.getSnapshot();
++				const prices = { ...current.prices };
++				const entry = { ...prices[model] };
++				entry[key] = value;
++				prices[model] = entry;
++				this.store.set({ ...current, prices });
++				this.host?.set("costEstimate", { ...current, prices });
++			}
++		};
++		/** Module-scope singleton wired in apply(); null before activation. */
++		let costEstimateSettings = null;
++		/** Billing display currencies (code → symbol). */
++		const BILLING_CURRENCIES = [
++			["CNY", "¥"],
++			["USD", "$"],
++			["EUR", "€"],
++			["GBP", "£"],
++			["JPY", "¥"],
++			["HKD", "HK$"],
++			["SGD", "S$"],
++			["AUD", "A$"],
++			["CAD", "C$"],
++			["CHF", "Fr."],
++			["KRW", "₩"],
++			["TWD", "NT$"],
++			["INR", "₹"],
++			["RUB", "₽"],
++			["BRL", "R$"]
++		];
++		/** Symbol lookup for any ISO code. */
++		const CURRENCY_SYMBOLS = Object.fromEntries(BILLING_CURRENCIES);
++		const DEFAULT_CURRENCY_SETTINGS = { code: "CNY", manualRate: null };
++		/** localStorage key for the auto-fetched CNY→currency rate cache. */
++		const RATE_CACHE_KEY = "dsh.billing.currency.rates.v1";
++		/**
++		* Billing currency preference, persisted in the conversation settings
++		* scope. `code` selects the display currency (CNY default — no
++		* conversion). `manualRate` optionally overrides the auto-fetched rate
++		* and is expressed as "1 unit of display currency = manualRate CNY".
++		*/
++		var BillingCurrencySettings = class {
++			store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(DEFAULT_CURRENCY_SETTINGS);
++			host;
++			constructor(host) {
++				this.host = host;
++				if (host !== void 0) {
++					host.subscribe(() => {
++						this.adopt(host);
++					});
++					this.adopt(host);
++				}
++			}
++			adopt(host) {
++				const section = host.getSnapshot().value;
++				if (section === void 0) return;
++				const current = this.store.getSnapshot();
++				const next = {
++					code: typeof section.currency?.code === "string" ? section.currency.code : current.code,
++					manualRate: typeof section.currency?.manualRate === "number" && section.currency.manualRate > 0 ? section.currency.manualRate : null
++				};
++				if (next.code !== current.code || next.manualRate !== current.manualRate) this.store.set(next);
++			}
++			setCode(code) {
++				const current = this.store.getSnapshot();
++				this.store.set({ ...current, code });
++				this.host?.set("currency", { ...current, code });
++			}
++			setManualRate(manualRate) {
++				const current = this.store.getSnapshot();
++				this.store.set({ ...current, manualRate });
++				this.host?.set("currency", { ...current, manualRate });
++			}
++		};
++		/** Module-scope singleton wired in apply(); null before activation. */
++		let currencySettings = null;
++		/**
++		* Effective display config (code + rate + source) consumed by
++		* formatYuan. Views subscribe to the store below so both settings
++		* changes and rate refreshes re-render immediately.
++		*/
++		let currencyRuntime = { code: "CNY", rate: 1, source: "cny" };
++		const currencyRuntimeStore = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(currencyRuntime);
++		/** Reactive read of the effective currency config. */
++		function useCurrencyConfig() {
++			return (0, react.useSyncExternalStore)((listener) => currencyRuntimeStore.subscribe(listener), () => currencyRuntimeStore.getSnapshot());
++		}
++		function readRateCache() {
++			try {
++				const raw = localStorage.getItem(RATE_CACHE_KEY);
++				if (!raw) return null;
++				const parsed = JSON.parse(raw);
++				return parsed && typeof parsed === "object" ? parsed : null;
++			} catch {
++				return null;
++			}
++		}
++		function writeRateCache(rates, nextUpdate) {
++			try {
++				localStorage.setItem(RATE_CACHE_KEY, JSON.stringify({ rates, nextUpdate, fetchedAt: Date.now() }));
++			} catch {}
++		}
++		/**
++		* Recompute the effective runtime config from settings + rate cache.
++		* Priority: manualRate (user override) > auto-fetched rate > 1:1.
++		*/
++		function syncCurrencyRuntime() {
++			const prefs = currencySettings?.store.getSnapshot() ?? DEFAULT_CURRENCY_SETTINGS;
++			const cache = readRateCache();
++			let rate = 1;
++			let source = "cny";
++			if (prefs.code !== "CNY") {
++				if (typeof prefs.manualRate === "number" && prefs.manualRate > 0) {
++					rate = 1 / prefs.manualRate;
++					source = "manual";
++				} else if (cache?.rates?.[prefs.code] != null) {
++					rate = cache.rates[prefs.code];
++					source = cache.nextUpdate > Date.now() / 1000 ? "auto" : "stale";
++				} else {
++					source = "failed";
++				}
++			}
++			const next = { code: prefs.code, rate, source };
++			const cur = currencyRuntimeStore.getSnapshot();
++			if (next.code !== cur.code || next.rate !== cur.rate || next.source !== cur.source) currencyRuntimeStore.set(next);
++			currencyRuntime = next;
++		}
++		let ratesInflight = null;
++		/**
++		* Fetch CNY→currency rates from open.er-api.com (free, keyless, CORS
++		* open, daily updates). Uses the local cache while it is still fresh;
++		* on network failure keeps the stale cache and marks it so. Deduped:
++		* concurrent callers share one in-flight request.
++		*/
++		function refreshExchangeRates() {
++			if (ratesInflight !== null) return ratesInflight;
++			ratesInflight = (async () => {
++				try {
++					const cached = readRateCache();
++					if (cached && cached.nextUpdate > Date.now() / 1000) return;
++					const response = await fetch("https://open.er-api.com/v6/latest/CNY", { signal: AbortSignal.timeout(10000) });
++					const json = await response.json();
++					if (json?.result === "success" && json.rates) {
++						writeRateCache(json.rates, json.time_next_update_unix ?? 0);
++						syncCurrencyRuntime();
++					}
++				} catch {
++					// offline: keep whatever cache exists
++				} finally {
++					ratesInflight = null;
++				}
++			})();
++			return ratesInflight;
++		}
++		/**
++		* Reactive read of the cost-estimate configuration. Falls back to the
++		* built-in default while the plugin is not yet active.
++		*/
++		function useCostEstimateConfig() {
++			return (0, react.useSyncExternalStore)((listener) => costEstimateSettings === null ? () => {} : costEstimateSettings.store.subscribe(listener), () => costEstimateSettings === null ? DEFAULT_COST_ESTIMATE : costEstimateSettings.store.getSnapshot());
++		}
+ 		//#endregion
+ 		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
+ 		function r(e) {
+@@ -2787,6 +2987,80 @@
+ 			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+ 		}
+ 		/**
++		* Estimated session cost in CNY (estimate only — see DeepSeek pricing page).
++		*
++		* Per-model per-1M-token prices: cache-read input, cache-miss input (also
++		* covers cache write), output. `current` applies before 2026-08-17 00:00
++		* Beijing time, then DeepSeek switches to peak/off-peak pricing (peak:
++		* 09:00-12:00 and 14:00-18:00 Beijing time). Unknown models fall back to
++		* the v4-flash table.
++		*/
++		const ESTIMATED_PRICES = {
++			"deepseek-v4-flash": {
++				current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
++				peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
++				offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 }
++			},
++			"deepseek-v4-pro": {
++				current: { cacheRead: 0.025, cacheMiss: 3, output: 6 },
++				peak: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
++				offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
++			}
++		};
++		const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
++		const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");
++		/**
++		* Current pricing period in Beijing time: "current" before the
++		* peak/off-peak switch date (2026-08-17), then "peak" during
++		* 09:00-12:00 / 14:00-18:00 and "offpeak" otherwise.
++		* @param now - the reference instant.
++		* @returns the period key.
++		*/
++		function pricingPeriod(now) {
++			if (now < PEAK_PRICE_SINCE) return "current";
++			const hour = Number(new Intl.DateTimeFormat("en-US", {
++				hour: "numeric",
++				hour12: false,
++				timeZone: "Asia/Shanghai"
++			}).format(now));
++			return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
++		}
++		/**
++		* Built-in price set for one model: the table for the current
++		* Beijing-time pricing period.
++		* @param model - model name (unknown models fall back to v4-flash).
++		* @param now - the reference instant.
++		* @returns the per-bucket price set.
++		*/
++		function estimatedPriceSet(model, now) {
++			const table = ESTIMATED_PRICES[model] ?? ESTIMATED_PRICES[ESTIMATED_FALLBACK_MODEL];
++			return table[pricingPeriod(now)];
++		}
++		/**
++		* Format a CNY amount in the configured display currency. Converts via
++		* the effective rate (manual override > auto-fetched > 1:1) and keeps
++		* the same significant-digit ladder as the yuan formatter. When rates
++		* are unavailable the amount stays in CNY so a foreign symbol is never
++		* attached to unconverted yuan figures.
++		*/
++		function formatYuan(value) {
++			const { code, rate, source } = currencyRuntime;
++			const stayYuan = code === "CNY" || source === "failed";
++			const v = stayYuan ? value : value * rate;
++			const sym = stayYuan ? "¥" : CURRENCY_SYMBOLS[code] ?? `${code} `;
++			if (!(v > 0)) return `${sym}0`;
++			if (v < 0.01) return `${sym}${v.toFixed(4)}`;
++			if (v < 1) return `${sym}${v.toFixed(3)}`;
++			return `${sym}${v.toFixed(2)}`;
++		}
++		/**
++		* Compact price display for the cost-estimate settings: strip trailing
++		* zeros so 0.02 / 0.025 / 1 / 4.5 stay short.
++		*/
++		function formatPrice(price) {
++			return String(Number(price));
++		}
++		/**
+ 		* Approximate context occupancy, using the TUI's integer rounding and upper
+ 		* clamp. The numerator is `projectedTokens` — the provider sample carried
+ 		* forward over the surface's movement since — so compaction shows immediately
+@@ -2807,9 +3081,11 @@
+ 				contextWindow: pressure.contextWindow
+ 			};
+ 		}
+-		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t }) {
++		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t, api, sessionId }) {
+ 			const settledNodes = useSession((s) => s.chat.legacy.nodes);
++			const timeline = useSession((s) => s.chat.timeline);
+ 			const usage = useProjection("tokenUsage");
++			const usageByModel = useProjection("tokenUsageByModel");
+ 			const projected = useProjection("sessionStats");
+ 			const stats = (0, react.useMemo)(() => projected ?? deriveStats(settledNodes), [projected, settledNodes]);
+ 			const groups = [];
+@@ -2835,6 +3111,52 @@
+ 					output: formatTokens(usage.outputTokens)
+ 				}));
+ 			}
++			const costCfg = useCostEstimateConfig();
++			// subscribe to currency/rate changes and refresh rates on view open
++			useCurrencyConfig();
++			(0, react.useEffect)(() => {
++				refreshExchangeRates();
++			}, []);
++			// [billing-backend] 费用由后端 session.cost 计算(按请求时刻计价、派生去重),
++			// 5 秒轮询与总账单同源;token 计数仍用实时投影。
++			const [serverCost, setServerCost] = (0, react.useState)(null);
++			const [serverCostByModel, setServerCostByModel] = (0, react.useState)(null);
++			(0, react.useEffect)(() => {
++				if (!costCfg.enabled || api === void 0 || sessionId === void 0) return;
++				let cancelled = false;
++				const refresh = async () => {
++					try {
++						const { result } = await api.sessions.cost({ sessionIds: [sessionId] });
++						if (cancelled || !result.ok) return;
++						const item = result.value.items.find((it) => it.sessionId === sessionId);
++						if (item === void 0) return;
++						setServerCost(item.cost);
++						setServerCostByModel(item.byModel ?? null);
++					} catch (error) {
++						// 轮询失败静默,下次重试。
++					}
++				};
++				refresh();
++				const id = setInterval(refresh, 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(id);
++				};
++			}, [api, sessionId, costCfg.enabled]);
++			if (costCfg.enabled && serverCost !== null && serverCost > 0) groups.push(t("stats.cost", { cost: formatYuan(serverCost) }));
++			const modelLines = [];
++			if (costCfg.enabled && serverCostByModel !== null && typeof serverCostByModel === "object") {
++				for (const key of Object.keys(serverCostByModel)) {
++					const m = serverCostByModel[key];
++					if (m.cost > 0) modelLines.push(t("stats.costModel", {
++						model: key,
++						input: formatTokens((m.input ?? 0) + (m.write ?? 0)),
++						read: formatTokens(m.read ?? 0),
++						output: formatTokens(m.output ?? 0),
++						cost: formatYuan(m.cost)
++					}));
++				}
++			}
+ 			const line = groups.join(" | ");
+ 			const rootRef = (0, react.useRef)(null);
+ 			const [truncated, setTruncated] = (0, react.useState)(false);
+@@ -2853,11 +3175,20 @@
+ 				};
+ 			}, [line]);
+ 			if (groups.length === 0) return null;
++			const tooltipLabel = modelLines.length > 0 ? (0, react_jsx_runtime.jsx)("div", {
++				children: [(0, react_jsx_runtime.jsx)("div", { children: line }), (0, react_jsx_runtime.jsx)("div", {
++					style: {
++						marginTop: 4,
++						whiteSpace: "nowrap"
++					},
++					children: modelLines.map((modelLine, i) => (0, react_jsx_runtime.jsx)("div", { children: modelLine }, i))
++				})]
++			}) : line;
+ 			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+-				label: line,
++				label: tooltipLabel,
+ 				side: "top",
+ 				delayMs: 500,
+-				disabled: !truncated,
++				disabled: !truncated && modelLines.length === 0,
+ 				children: (0, react_jsx_runtime.jsx)("div", {
+ 					ref: rootRef,
+ 					className: StatsLine_module_css_default.root,
+@@ -3058,6 +3389,1455 @@
+ 			});
+ 		}
+ 		//#endregion
++		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/CostMeter.module.css.mjs
++		const css$22 = ".Rk7vN3_trigger{box-sizing:border-box;min-width:36px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:999px;outline:none;place-items:center;padding:0 8px;display:grid}.Rk7vN3_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}.Rk7vN3_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Rk7vN3_glyph{font:500 12px/16px var(--ds-font-family-code);font-variant-numeric:tabular-nums}.Rk7vN3_panel{z-index:100;box-sizing:border-box;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:264px;box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-secondary);cursor:default;border-radius:12px;padding:12px;font-size:12px;line-height:20px;position:absolute;bottom:calc(100% + 8px);right:0}.Rk7vN3_header{align-items:center;gap:6px;display:flex}.Rk7vN3_figures{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin-left:auto;font-weight:500}.Rk7vN3_percent{color:var(--dsw-alias-label-primary);font-weight:500}.Rk7vN3_headline{color:var(--dsw-alias-label-tertiary)}.Rk7vN3_headline:empty{display:none}.Rk7vN3_bar{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;gap:1px;height:4px;margin:10px 0 12px;display:flex;overflow:hidden}.Rk7vN3_segment{background:var(--meter-tint,var(--dsw-alias-label-tertiary));border-radius:1px;flex:none;min-width:2px;height:100%}.Rk7vN3_swatch{background:var(--meter-tint);vertical-align:baseline;border-radius:2px;width:8px;height:8px;margin-right:6px;display:inline-block}.Rk7vN3_colorUncached{--meter-tint:var(--dsw-static-neutral-bluish-400)}.Rk7vN3_colorCache{--meter-tint:var(--dsw-static-blue-450)}.Rk7vN3_colorOutput{--meter-tint:#a78bfa}.Rk7vN3_rows{margin:6px 0 0}.Rk7vN3_row{justify-content:space-between;align-items:center;gap:12px;padding:2px 0;display:flex}.Rk7vN3_row dt{color:var(--dsw-alias-label-secondary)}.Rk7vN3_row dd{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin:0}.Rk7vN3_modelRows{border-top:1px solid var(--dsw-alias-border-l1);margin:8px 0 0;padding:4px 0 0}.Rk7vN3_modelRow{justify-content:space-between;align-items:center;gap:12px;padding:2px 0;display:flex}.Rk7vN3_modelName{color:var(--dsw-alias-label-tertiary);font:400 11px/16px var(--ds-font-family-code)}";
++		const tagId$22 = "@deepseek-ai/dsh-client-ui-conversation/CostMeter.module.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$22) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$22;
++			tag.textContent = css$22;
++			document.head.appendChild(tag);
++		}
++		var CostMeter_module_css_default = {
++			"colorCache": "Rk7vN3_colorCache",
++			"colorOutput": "Rk7vN3_colorOutput",
++			"colorUncached": "Rk7vN3_colorUncached",
++			"figures": "Rk7vN3_figures",
++			"glyph": "Rk7vN3_glyph",
++			"headline": "Rk7vN3_headline",
++			"modelName": "Rk7vN3_modelName",
++			"modelRow": "Rk7vN3_modelRow",
++			"modelRows": "Rk7vN3_modelRows",
++			"panel": "Rk7vN3_panel",
++			"percent": "Rk7vN3_percent",
++			"row": "Rk7vN3_row",
++			"rows": "Rk7vN3_rows",
++			"segment": "Rk7vN3_segment",
++			"swatch": "Rk7vN3_swatch",
++			"trigger": "Rk7vN3_trigger"
++		};
++		//#endregion
++		//#region lib/types/client/skeleton/CostMeter.js
++		/** Cost legend buckets in bar-segment order; each color class tints the shared swatch/segment. */
++		const COST_METER_ROWS = [
++			{
++				key: "uncached",
++				label: "cost.uncached",
++				color: CostMeter_module_css_default.colorUncached
++			},
++			{
++				key: "cacheRead",
++				label: "cost.cacheRead",
++				color: CostMeter_module_css_default.colorCache
++			},
++			{
++				key: "output",
++				label: "cost.output",
++				color: CostMeter_module_css_default.colorOutput
++			}
++		];
++		/**
++		* Composer cost meter: a ¥ trigger beside the context meter opening a
++		* panel of the estimated session cost — headline total, a stacked bar of
++		* the three billing buckets, and per-model detail rows. Fed by the
++		* `tokenUsageByModel` projection and the cost-estimate settings; renders
++		* nothing until usage is reported and the feature is enabled.
++		*/
++		function CostMeter({ useProjection, useSession, t, api, sessionId }) {
++			const usage = useProjection("tokenUsage");
++			const costCfg = useCostEstimateConfig();
++			// subscribe to currency/rate changes and refresh rates on view open
++			useCurrencyConfig();
++			(0, react.useEffect)(() => {
++				refreshExchangeRates();
++			}, []);
++			const [open, setOpen] = (0, react.useState)(false);
++			const [costBuckets, setCostBuckets] = (0, react.useState)(null);
++			const rootRef = (0, react.useRef)(null);
++			// [billing-backend] 费用拆分由后端 session.costDetail 计算(按请求时刻计价),
++			// 5 秒轮询;token 计数仍用实时投影。
++			(0, react.useEffect)(() => {
++				if (!costCfg.enabled || api === void 0 || sessionId === void 0) {
++					setCostBuckets(null);
++					return;
++				}
++				let cancelled = false;
++				const refresh = async () => {
++					try {
++						const { result } = await api.sessions.costDetail({ sessionId });
++						if (cancelled || !result.ok) return;
++						const cb = result.value.costBuckets;
++						if (cb === void 0) return;
++						setCostBuckets(cb);
++					} catch (error) {
++						// 轮询失败静默,下次重试。
++					}
++				};
++				refresh();
++				const id = setInterval(refresh, 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(id);
++				};
++			}, [api, sessionId, costCfg.enabled]);
++			const available = costBuckets !== null && costBuckets.total > 0;
++			(0, react.useEffect)(() => {
++				if (!available && open) setOpen(false);
++			}, [available, open]);
++			(0, react.useEffect)(() => {
++				if (!open || !available) return;
++				const onPointerDown = (e) => {
++					if (e.target instanceof Node && rootRef.current?.contains(e.target) === true) return;
++					setOpen(false);
++				};
++				const onKeyDown = (e) => {
++					if (e.key === "Escape") setOpen(false);
++				};
++				document.addEventListener("pointerdown", onPointerDown);
++				document.addEventListener("keydown", onKeyDown);
++				return () => {
++					document.removeEventListener("pointerdown", onPointerDown);
++					document.removeEventListener("keydown", onKeyDown);
++				};
++			}, [available, open]);
++			if (costBuckets === null || costBuckets.total <= 0) return null;
++			const segments = COST_METER_ROWS.map((row) => ({
++				key: row.key,
++				color: row.color,
++				width: costBuckets.total > 0 ? costBuckets[row.key] / costBuckets.total * 100 : 0
++			})).filter((part) => part.width > 0);
++			return (0, react_jsx_runtime.jsxs)("span", {
++				ref: rootRef,
++				className: CostMeter_module_css_default.trigger,
++				children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++					label: t("cost.panelAria", { cost: formatYuan(costBuckets.total) }),
++					side: "top",
++					delayMs: 200,
++					disabled: open,
++					children: (0, react_jsx_runtime.jsx)("button", {
++						type: "button",
++						className: CostMeter_module_css_default.trigger,
++						"aria-label": t("cost.panelAria", { cost: formatYuan(costBuckets.total) }),
++						"aria-haspopup": "dialog",
++						"aria-expanded": open,
++						onClick: () => {
++							setOpen(!open);
++						},
++						children: (0, react_jsx_runtime.jsx)("span", {
++							className: CostMeter_module_css_default.glyph,
++							children: formatYuan(costBuckets.total)
++						})
++					})
++				}), open && (0, react_jsx_runtime.jsxs)("div", {
++					className: CostMeter_module_css_default.panel,
++					role: "dialog",
++					"aria-label": t("cost.panelTitle"),
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: CostMeter_module_css_default.header,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostMeter_module_css_default.headline,
++							children: t("cost.panelTitle")
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: CostMeter_module_css_default.percent,
++							children: formatYuan(costBuckets.total)
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: CostMeter_module_css_default.figures,
++							children: `${formatTokens(costBuckets.tokens)} tok`
++						})]
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostMeter_module_css_default.bar,
++						children: segments.map((segment) => (0, react_jsx_runtime.jsx)("div", {
++							className: `${CostMeter_module_css_default.segment} ${segment.color}`,
++							style: {
++								width: `${segment.width}%`
++							}
++						}, segment.key))
++					}), (0, react_jsx_runtime.jsx)("dl", {
++						className: CostMeter_module_css_default.rows,
++						children: COST_METER_ROWS.map((row) => (0, react_jsx_runtime.jsxs)("div", {
++							className: CostMeter_module_css_default.row,
++							children: [(0, react_jsx_runtime.jsxs)("dt", {
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: `${CostMeter_module_css_default.swatch} ${row.color}`,
++									"aria-hidden": true
++								}), t(row.label)]
++							}), (0, react_jsx_runtime.jsx)("dd", {
++								children: `${formatTokens(costBuckets.tokensByBucket[row.key])} · ${formatYuan(costBuckets[row.key])}`
++							})]
++						}, row.key))
++					}), costBuckets.models.length > 1 && (0, react_jsx_runtime.jsx)("div", {
++						className: CostMeter_module_css_default.modelRows,
++						children: costBuckets.models.map((m) => (0, react_jsx_runtime.jsxs)("div", {
++							className: CostMeter_module_css_default.modelRow,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: CostMeter_module_css_default.modelName,
++								children: m.model
++							}), (0, react_jsx_runtime.jsx)("span", {
++								children: formatYuan(m.cost)
++							})]
++						}, m.model))
++					})]
++				})]
++			});
++		}
++		//#endregion
++		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/view/BillingView.module.css.mjs
++		const css$23 = ".Vb3nY2_view{box-sizing:border-box;min-width:0;width:100%;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px;padding:12px 12px 24px;flex-direction:column;gap:12px;display:flex}.Vb3nY2_partial{box-sizing:border-box;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);border-radius:8px;padding:8px 12px;font-size:12px;line-height:18px}.Vb3nY2_header{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.Vb3nY2_title{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:500;line-height:24px}.Vb3nY2_subtitle{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Vb3nY2_summary{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);border-radius:12px;padding:12px 14px}.Vb3nY2_summaryRow{align-items:center;gap:12px;display:flex}.Vb3nY2_summaryTotal{font-size:22px;font-weight:600;line-height:28px;font-variant-numeric:tabular-nums}.Vb3nY2_summaryMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Vb3nY2_bar{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;gap:1px;height:6px;margin:10px 0 0;display:flex;overflow:hidden}.Vb3nY2_segment{background:var(--meter-tint,var(--dsw-alias-label-tertiary));border-radius:1px;flex:none;min-width:2px;height:100%}.Vb3nY2_swatch{background:var(--meter-tint);vertical-align:baseline;border-radius:2px;width:8px;height:8px;margin-right:6px;display:inline-block}.Vb3nY2_colorFlash{--meter-tint:var(--dsw-static-blue-450)}.Vb3nY2_colorPro{--meter-tint:#a78bfa}.Vb3nY2_colorOther{--meter-tint:var(--dsw-static-neutral-bluish-400)}.Vb3nY2_legend{gap:12px;margin-top:8px;display:flex;flex-wrap:wrap}.Vb3nY2_legendItem{align-items:center;gap:4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;display:inline-flex}.Vb3nY2_tableWrap{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;overflow:hidden}.Vb3nY2_table{width:100%;border-collapse:collapse;font-size:12px;line-height:18px;table-layout:fixed}.Vb3nY2_th{box-sizing:border-box;height:34px;color:var(--dsw-alias-label-tertiary);text-align:left;background:var(--dsw-specific-sidebar-fill);font-weight:500;padding:0 12px}.Vb3nY2_td{box-sizing:border-box;height:34px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.Vb3nY2_tdNum{font-variant-numeric:tabular-nums}.Vb3nY2_cost{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums}.Vb3nY2_totalRow .Vb3nY2_td{border-top:2px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-weight:600}.Vb3nY2_empty,.Vb3nY2_loading{color:var(--dsw-alias-label-tertiary);padding:32px 20px;text-align:center;font-size:13px;line-height:20px}.Vb3nY2_error{color:var(--dsw-alias-state-error-primary);padding:32px 20px;text-align:center;font-size:13px;line-height:20px}.Vb3nY2_turnFoldRow{cursor:pointer}.Vb3nY2_turnFoldRow:hover td{background:var(--dsw-alias-interactive-bg-hover)}.Vb3nY2_turnFoldBody{box-sizing:border-box;padding:8px 4px 8px 12px;background:var(--dsw-alias-bg-module-platform);border-radius:8px;margin:2px 8px 6px}.Vb3nY2_turnFoldChevron{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;padding:0;transition:transform .12s}.Vb3nY2_turnFoldChevron:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.Vb3nY2_foldChevronOpen{transform:rotate(180deg)}.Vb3nY2_tableSessions th:nth-child(1),.Vb3nY2_tableSessions td:nth-child(1){width:98px}.Vb3nY2_tableSessions th:nth-child(2),.Vb3nY2_tableSessions td:nth-child(2){width:90px}.Vb3nY2_tableSessions th:nth-child(3),.Vb3nY2_tableSessions td:nth-child(3){width:76px}.Vb3nY2_tableSessions th:nth-child(4),.Vb3nY2_tableSessions td:nth-child(4){width:55px}.Vb3nY2_tableSessions th:nth-child(5),.Vb3nY2_tableSessions td:nth-child(5){width:55px}.Vb3nY2_tableSessions th:nth-child(6),.Vb3nY2_tableSessions td:nth-child(6){width:72px}.Vb3nY2_tableSessions th:nth-child(7),.Vb3nY2_tableSessions td:nth-child(7){width:92px}.Vb3nY2_tableSessions td.Vb3nY2_tdNum{text-align:right}";
++		const tagId$23 = "@deepseek-ai/dsh-client-ui-conversation/BillingView.module.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$23) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$23;
++			tag.textContent = css$23;
++			document.head.appendChild(tag);
++		}
++		var BillingView_module_css_default = {
++			"bar": "Vb3nY2_bar",
++			"colorFlash": "Vb3nY2_colorFlash",
++			"colorOther": "Vb3nY2_colorOther",
++			"colorPro": "Vb3nY2_colorPro",
++			"cost": "Vb3nY2_cost",
++			"empty": "Vb3nY2_empty",
++			"error": "Vb3nY2_error",
++			"foldChevronOpen": "Vb3nY2_foldChevronOpen",
++			"header": "Vb3nY2_header",
++			"legend": "Vb3nY2_legend",
++			"legendItem": "Vb3nY2_legendItem",
++			"loading": "Vb3nY2_loading",
++			"partial": "Vb3nY2_partial",
++			"segment": "Vb3nY2_segment",
++			"subtitle": "Vb3nY2_subtitle",
++			"summary": "Vb3nY2_summary",
++			"summaryMeta": "Vb3nY2_summaryMeta",
++			"summaryRow": "Vb3nY2_summaryRow",
++			"summaryTotal": "Vb3nY2_summaryTotal",
++			"swatch": "Vb3nY2_swatch",
++			"table": "Vb3nY2_table",
++			"tableSessions": "Vb3nY2_tableSessions",
++			"tableWrap": "Vb3nY2_tableWrap",
++			"td": "Vb3nY2_td",
++			"tdNum": "Vb3nY2_tdNum",
++			"th": "Vb3nY2_th",
++			"title": "Vb3nY2_title",
++			"totalRow": "Vb3nY2_totalRow",
++			"turnFoldBody": "Vb3nY2_turnFoldBody",
++			"turnFoldChevron": "Vb3nY2_turnFoldChevron",
++			"turnFoldRow": "Vb3nY2_turnFoldRow",
++			"view": "Vb3nY2_view"
++		};
++		//#endregion
++		//#region lib/types/client/view/BillingView.js
++		/** Short display id for one session row. */
++		function shortSessionId(id) {
++			return id.length > 12 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id;
++		}
++		/** Legend color class for one model name. */
++		function billingModelColor(model) {
++			if (model === "deepseek-v4-flash") return BillingView_module_css_default.colorFlash;
++			if (model === "deepseek-v4-pro") return BillingView_module_css_default.colorPro;
++			return BillingView_module_css_default.colorOther;
++		}
++		/**
++		* CSS color value for one model name — the fill-style counterpart of
++		* {@link billingModelColor}: the turn chart paints fills through the
++		* `--chart-color` custom property, which must hold a real color, not a
++		* class name (a class name makes `background: var(--chart-color, …)`
++		* invalid at computed-value time, so fills render transparent and only
++		* the gray track row is visible).
++		*/
++		function billingModelColorValue(model) {
++			if (model === "deepseek-v4-pro") return "#a78bfa";
++			if (model === "deepseek-v4-flash") return "var(--dsw-static-blue-450)";
++			return "var(--dsw-static-neutral-bluish-400)";
++		}
++		/**
++		* Billing view: a per-session cost statement fed by `session.list`
++		* projections (`sessionStats`, `tokenUsage`, `tokenUsageByModel`). Rows
++		* degrade to em-dashes when a session carries no projection block.
++		*/
++		/**
++		* All-sessions cost statement: responsibility-accounting view. Rows are
++		* conversations (subagent costs folded into their parent), summarizable
++		* by session / model / day, and drill into per-turn and per-call detail.
++		*/
++		/**
++		* All-sessions cost statement: responsibility-accounting view. Rows are
++		* conversations (subagent costs folded into their parent), summarizable
++		* by session / model / day. Selecting a row opens a second-level detail
++		* view with that session's per-turn and per-call ledger.
++		*/
++		function BillingView({ api, t }) {
++			const costCfg = useCostEstimateConfig();
++			// subscribe to currency/rate changes and refresh rates on view open
++			useCurrencyConfig();
++			(0, react.useEffect)(() => {
++				refreshExchangeRates();
++			}, []);
++			const [items, setItems] = (0, react.useState)(null);
++			const [failed, setFailed] = (0, react.useState)(null);
++			const [tab, setTab] = (0, react.useState)("sessions");
++			const [detail, setDetail] = (0, react.useState)(null);
++			const [detailData, setDetailData] = (0, react.useState)(null);
++			const [detailBusy, setDetailBusy] = (0, react.useState)(false);
++			const [detailError, setDetailError] = (0, react.useState)(null);
++			const [balance, setBalance] = (0, react.useState)(null);
++			const [openTurns, setOpenTurns] = (0, react.useState)(() => new Set());
++			const toggleTurn = (turn) => {
++				setOpenTurns((prev) => {
++					const next = new Set(prev);
++					if (next.has(turn)) next.delete(turn);
++					else next.add(turn);
++					return next;
++				});
++			};
++			const viewRef = (0, react.useRef)(null);
++			(0, react.useEffect)(() => {
++				if (detail !== null) viewRef.current?.parentElement?.scrollTo({ top: 0 });
++			}, [detail]);
++			(0, react.useEffect)(() => {
++				let cancelled = false;
++				let timer = 0;
++				// 打开期间周期刷新：会话运行时，外面的统计栏/费用表实时更新，
++				// 账单必须追平，否则弹窗里的数字永远落后于外面的预估。
++				const refresh = () => {
++					api.sessions.list({}).then(({ result }) => {
++						if (cancelled) return;
++						if (result.ok) {
++							setItems(result.value.items ?? []);
++							setFailed(null);
++						} else {
++							setFailed(result.error?.message ?? "list failed");
++							return;
++						}
++						api.host.balance({}).then(({ result: bal }) => {
++							if (cancelled) return;
++							if (!bal.ok) {
++								setBalance(null);
++								return;
++							}
++							setBalance(bal.value);
++						}).catch(() => {
++							if (!cancelled) setBalance(null);
++						});
++					}).catch((error) => {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					});
++				};
++				setItems(null);
++				setFailed(null);
++				refresh();
++				timer = setInterval(() => refresh(), 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(timer);
++				};
++			}, [api]);
++			(0, react.useEffect)(() => {
++				if (detail === null) return;
++				let cancelled = false;
++				setDetailBusy(true);
++				setDetailError(null);
++				setDetailData(null);
++				(async () => {
++					// [billing-backend] 明细由后端折叠(session.costDetail:按请求时刻计价、
++					// 派生去重),前端只渲染,不再拉事件流自行折叠。
++					const { result } = await api.sessions.costDetail({ sessionId: detail.sessionId });
++					if (cancelled) return;
++					if (!result.ok) {
++						setDetailError(result.error?.message ?? "costDetail failed");
++						setDetailBusy(false);
++						return;
++					}
++					setDetailData({
++						turns: result.value.turns,
++						calls: result.value.calls,
++						capped: false,
++						derivedFrom: result.value.derivedFrom
++					});
++					setDetailBusy(false);
++				})();
++				return () => {
++					cancelled = true;
++				};
++			}, [detail, api]);
++			// [billing-fix] 服务端费用聚合:总账单金额来自 session.cost(服务端按
++			// 请求时刻逐笔折叠,内置价表 + 自定义价覆盖),5 秒轮询追平实时用量,
++			// 服务端按 (updatedAt, 价表) 缓存,不活跃会话零成本。不再由浏览器
++			// 逐会话拉明细折叠(旧方案 165 请求/20 秒,且重开页面要重折)。
++			const [costData, setCostData] = (0, react.useState)(null);
++			(0, react.useEffect)(() => {
++				let cancelled = false;
++				const refresh = () => {
++					api.sessions.cost({}).then(({ result }) => {
++						if (cancelled) return;
++						if (result.ok) setCostData(result.value);
++						else setFailed(result.error?.message ?? "cost failed");
++					}).catch((error) => {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					});
++				};
++				refresh();
++				const timer = setInterval(refresh, 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(timer);
++				};
++			}, [api]);
++			const costMap = (0, react.useMemo)(() => {
++				const m = new Map();
++				if (costData !== null) for (const item of costData.items) m.set(item.sessionId, item);
++				return m;
++			}, [costData]);
++			const rows = (0, react.useMemo)(() => {
++				if (items === null) return null;
++				const out = [];
++				for (const item of items) {
++					const p = item.projections?.values;
++					const usage = p?.tokenUsage;
++					const usageByModel = p?.tokenUsageByModel;
++					// [billing-backend] 行金额/用量直接来自服务端 session.cost 聚合
++					// (按请求时刻计价、派生去重、子代理归集),前端只渲染。
++					const fold = costMap.get(item.sessionId);
++					const cost = fold !== void 0 ? fold.cost : null;
++					const input = fold !== void 0 ? fold.input + fold.write : void 0;
++					const output = fold !== void 0 ? fold.output : void 0;
++					const stats = p?.sessionStats;
++					out.push({
++						sessionId: item.sessionId,
++						updatedAt: item.updatedAt,
++						parentSessionId: item.parentSessionId,
++						origin: item.origin,
++						title: typeof p?.title === "string" && p.title !== "" ? p.title : void 0,
++						usage,
++						usageByModel,
++						cost,
++						input,
++						output,
++						turns: stats?.turns,
++						steps: stats?.steps,
++						// [billing-backend] 子代理费用由服务端归集到父行 subCost。
++						subCost: fold !== void 0 && typeof fold.subCost === "number" ? fold.subCost : 0,
++						subCount: 0,
++						// [billing-dedup] 派生会话:费用已含于父会话(服务端折叠时按
++						// 与父会话 usage 序列的公共前缀跳过继承部分,此行为 0)。
++						derivedFrom: fold !== void 0 && typeof fold.derivedFrom === "string" ? fold.derivedFrom : void 0
++					});
++				}
++				out.sort((a, b) => b.updatedAt - a.updatedAt);
++				return out;
++			}, [items, costMap, costCfg.prices]);
++			const mainRows = rows === null ? null : rows.filter((r) => r.origin !== "subagent");
++			// [billing-backend] 总额/按模型/按日全部由服务端 session.cost 汇总,
++			// 前端只渲染,不再本地合并。
++			const totalCost = costData?.totals?.cost ?? 0;
++			const totalInput = (costData?.totals?.input ?? 0) + (costData?.totals?.write ?? 0);
++			const totalOutput = costData?.totals?.output ?? 0;
++			const withUsage = costData?.totals?.withUsage ?? 0;
++			const modelEntries = costData !== null ? Object.entries(costData.byModel ?? {}).sort((a, b) => b[1].cost - a[1].cost) : [];
++			const modelTotal = modelEntries.reduce((sum, [, e]) => sum + e.cost, 0);
++			const dayEntries = costData !== null ? Object.entries(costData.byDay ?? {}).sort((a, b) => b[0] < a[0] ? -1 : 1) : [];
++			const dash = t("billing.noStats");
++			if (failed !== null) return (0, react_jsx_runtime.jsx)("div", { className: BillingView_module_css_default.error, children: `${t("billing.error")}: ${failed}` });
++			if (rows === null) return (0, react_jsx_runtime.jsx)("div", { className: BillingView_module_css_default.loading, children: t("billing.loading") });
++			if (mainRows.length === 0) return (0, react_jsx_runtime.jsx)("div", { className: BillingView_module_css_default.empty, children: t("billing.empty") });
++			const tabButton = (id, label) => (0, react_jsx_runtime.jsx)("button", {
++				type: "button",
++				onClick: () => {
++					setTab(id);
++				},
++				className: clsx(BillingTabs_module_css_default.tab, tab === id && BillingTabs_module_css_default.tabActive),
++				children: label
++			}, id);
++			const detailRow = (r) => (0, react_jsx_runtime.jsx)("tr", {
++				className: BillingTabs_module_css_default.row,
++				children: [(0, react_jsx_runtime.jsx)("td", {
++					className: BillingView_module_css_default.td,
++					title: r.derivedFrom !== void 0 ? `${r.title !== void 0 ? r.title : shortSessionId(r.sessionId)} · 费用已含于父会话 ${shortSessionId(r.derivedFrom)}` : r.title !== void 0 ? `${r.title} (${r.sessionId})` : r.sessionId,
++					children: r.title !== void 0 ? r.title : shortSessionId(r.sessionId)
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: BillingView_module_css_default.td,
++					children: formatMessageClock(r.updatedAt, t)
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++					children: r.turns === void 0 || r.steps === void 0 ? dash : `${r.turns} · ${r.steps}`
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++					children: r.input === void 0 ? dash : formatTokens(r.input)
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++					children: r.output === void 0 ? dash : formatTokens(r.output)
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++					title: r.derivedFrom !== void 0 ? t("billing.derivedFrom", { cost: formatYuan(r.cost ?? 0) }) : void 0,
++					children: r.cost === null || r.cost <= 0 ? dash : r.subCost > 0 ? `${formatYuan(r.cost)}${t("billing.attrSub", { cost: formatYuan(r.subCost) })}` : formatYuan(r.cost)
++				}), (0, react_jsx_runtime.jsx)("td", {
++					className: BillingView_module_css_default.td,
++					children: (0, react_jsx_runtime.jsx)("button", {
++						type: "button",
++						className: BillingTabs_module_css_default.drillBtn,
++						onClick: () => {
++							setDetail({ sessionId: r.sessionId, title: r.title !== void 0 ? r.title : shortSessionId(r.sessionId) });
++						},
++						children: t("billing.drill")
++					})
++				})]
++			}, r.sessionId);
++			if (detail !== null) {
++				return (0, react_jsx_runtime.jsxs)("div", {
++					ref: viewRef,
++					className: BillingView_module_css_default.view,
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: BillingView_module_css_default.header,
++						children: [(0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: BillingTabs_module_css_default.drillBtn,
++							onClick: () => {
++								setDetail(null);
++							},
++							children: `← ${t("billing.back")}`
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: BillingView_module_css_default.title,
++							children: detail.title
++						})]
++					}), detailBusy && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.loading,
++						children: t("billing.loading")
++					}), detailError !== null && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.error,
++						children: `${t("billing.error")}: ${detailError}`
++					}), detailData !== null && (0, react_jsx_runtime.jsxs)("div", {
++						className: BillingTabs_module_css_default.drillPanel,
++						children: [detailData.capped === true && (0, react_jsx_runtime.jsx)("div", {
++							className: BillingView_module_css_default.partial,
++							children: t("billing.partial")
++						}), rows !== null && rows.find((r) => r.sessionId === detail.sessionId)?.derivedFrom !== void 0 && (0, react_jsx_runtime.jsx)("div", {
++							className: BillingView_module_css_default.partial,
++							children: t("billing.derivedFrom")
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: BillingTabs_module_css_default.sectionTitle,
++							children: t("billing.col.turns")
++						}), detailData.turns.length > 0 ? (0, react_jsx_runtime.jsx)("div", {
++							className: BillingView_module_css_default.tableWrap,
++							children: (0, react_jsx_runtime.jsxs)("table", {
++								className: BillingView_module_css_default.table,
++								children: [(0, react_jsx_runtime.jsxs)("thead", {
++									children: [(0, react_jsx_runtime.jsxs)("tr", {
++										children: [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.turn") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.model") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.steps") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.uncached") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.cacheRead") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: "" })]
++									})]
++								}), (0, react_jsx_runtime.jsxs)("tbody", {
++									children: [detailData.turns.map((line) => {
++										const open = openTurns.has(line.turn);
++										const calls = detailData.calls.filter((call) => call.turn === line.turn);
++										return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
++											children: [(0, react_jsx_runtime.jsxs)("tr", {
++												className: BillingView_module_css_default.turnFoldRow,
++												onClick: () => {
++													toggleTurn(line.turn);
++												},
++												children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: `#${line.turn}` }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: line.model }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: line.steps }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(line.input + line.write) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(line.read) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(line.output) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(line.cost) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: (0, react_jsx_runtime.jsx)("button", {
++													type: "button",
++													className: clsx(BillingView_module_css_default.turnFoldChevron, open && BillingView_module_css_default.foldChevronOpen),
++													"aria-label": t(open ? "billing.collapseTurn" : "billing.expandTurn", { turn: line.turn }),
++													onClick: (e) => {
++														e.stopPropagation();
++														toggleTurn(line.turn);
++													},
++													children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
++												}) })]
++											}, `row-${line.turn}`), open && calls.length > 0 && (0, react_jsx_runtime.jsx)("tr", {
++												children: (0, react_jsx_runtime.jsx)("td", {
++													colSpan: 8,
++													className: BillingView_module_css_default.td,
++													children: (0, react_jsx_runtime.jsx)("div", {
++														className: BillingView_module_css_default.turnFoldBody,
++														children: (0, react_jsx_runtime.jsxs)("table", {
++															className: BillingView_module_css_default.table,
++															children: [(0, react_jsx_runtime.jsxs)("thead", {
++																children: [(0, react_jsx_runtime.jsxs)("tr", {
++																	children: [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.time") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.step") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.model") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.uncached") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.cacheRead") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.write") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") })]
++																})]
++															}), (0, react_jsx_runtime.jsx)("tbody", {
++																children: calls.map((call) => (0, react_jsx_runtime.jsxs)("tr", {
++																	children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: formatMessageClock(call.time, t) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: call.step }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: call.model }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(call.input + call.write) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(call.read) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(call.write) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(call.output) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(call.cost) })]
++																}, `${call.turn}:${call.step}`))
++															})]
++														})
++													})
++												})
++											}, `nested-${line.turn}`)]
++										}, `turn-${line.turn}`);
++									})]
++								})]
++							})
++						}) : (0, react_jsx_runtime.jsx)("div", {
++							className: BillingView_module_css_default.empty,
++							children: t("billing.noUsage")
++						})]
++					})]
++				});
++			}
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: BillingView_module_css_default.view,
++				children: [(0, react_jsx_runtime.jsxs)("div", {
++					className: BillingView_module_css_default.header,
++					children: [(0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.title,
++						children: t("billing.title")
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.subtitle,
++						children: t("billing.subtitle")
++					})]
++				}), (0, react_jsx_runtime.jsxs)("div", {
++					className: BillingView_module_css_default.summary,
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: BillingView_module_css_default.summaryRow,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryTotal,
++							children: formatYuan(totalCost)
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.sessions", { count: mainRows.length, withUsage })
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.totalTokens", { input: formatTokens(totalInput), output: formatTokens(totalOutput) })
++						}), balance !== null && (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.balance", { balance: formatYuan(balance.totalBalance) })
++						})]
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.bar,
++						children: modelEntries.map(([model, entry]) => (0, react_jsx_runtime.jsx)("div", {
++							className: `${BillingView_module_css_default.segment} ${billingModelColor(model)}`,
++							style: { width: `${modelTotal > 0 ? entry.cost / modelTotal * 100 : 0}%` }
++						}, model))
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.legend,
++						children: modelEntries.map(([model, entry]) => (0, react_jsx_runtime.jsxs)("span", {
++							className: BillingView_module_css_default.legendItem,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: `${BillingView_module_css_default.swatch} ${billingModelColor(model)}`,
++								"aria-hidden": true
++							}), model, ` ${formatYuan(entry.cost)}`]
++						}, model))
++					}), dayEntries.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						className: CostCharts_module_css_default.chartCard,
++						children: (0, react_jsx_runtime.jsx)(CostDayChart, {
++							entries: [...dayEntries].reverse().map(([day, e]) => [day, e.cost]),
++							color: "var(--dsw-static-blue-450)"
++						})
++					})]
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: BillingTabs_module_css_default.tabs,
++					children: [tabButton("sessions", t("billing.tab.sessions")), tabButton("models", t("billing.tab.models")), tabButton("days", t("billing.tab.days"))]
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.tableWrap,
++					children: (0, react_jsx_runtime.jsxs)("table", {
++						className: BillingView_module_css_default.table + " " + BillingView_module_css_default.tableSessions,
++						children: [(0, react_jsx_runtime.jsxs)("thead", {
++							children: [(0, react_jsx_runtime.jsxs)("tr", {
++								children: tab === "sessions" ? [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.session") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.updated") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.rounds") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.input") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: "" })] : tab === "models" ? [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.model") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.usage") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.uncached") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") })] : [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.tab.days") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.usage") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.input") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") })]
++							})]
++						}), (0, react_jsx_runtime.jsxs)("tbody", {
++							children: tab === "sessions" ? [mainRows.map(detailRow), (0, react_jsx_runtime.jsxs)("tr", {
++								className: BillingView_module_css_default.totalRow,
++								children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: t("billing.total") }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(totalInput) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(totalOutput) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(totalCost) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td })]
++							})] : tab === "models" ? [modelEntries.map(([model, entry]) => (0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: model }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: entry.sessions }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(entry.input + entry.write) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(entry.output) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(entry.cost) })]
++							}, model)), (0, react_jsx_runtime.jsxs)("tr", {
++								className: BillingView_module_css_default.totalRow,
++								children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: t("billing.total") }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(totalCost) })]
++							})] : [dayEntries.map(([day, entry]) => (0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: day }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: dash }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(entry.input + entry.write) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(entry.output) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(entry.cost) })]
++							}, day)), (0, react_jsx_runtime.jsxs)("tr", {
++								className: BillingView_module_css_default.totalRow,
++								children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: t("billing.total") }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(totalInput) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`, children: formatTokens(totalOutput) }), (0, react_jsx_runtime.jsx)("td", { className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`, children: formatYuan(totalCost) })]
++							})]
++						})]
++					})
++				})]
++			});
++		}
++
++
++		//#endregion
++		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/view/SessionBill.module.css.mjs
++		const css$24 = ".Qf4wN8_action{box-sizing:border-box;width:100%;height:30px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:center;gap:6px;padding:0 10px;font-size:12px;line-height:20px;display:flex}.Qf4wN8_action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.Qf4wN8_dialog{box-sizing:border-box;width:min(960px,92vw);height:min(640px,80vh);flex-direction:column;display:flex;overflow:hidden}.Qf4wN8_body{flex:1;min-height:0;overflow:auto}.Qf4wN8_detail{width:100%;border-collapse:collapse;font-size:12px;line-height:18px}.Qf4wN8_detail th{height:30px;color:var(--dsw-alias-label-tertiary);text-align:left;font-weight:500;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}.Qf4wN8_detail td{height:30px;color:var(--dsw-alias-label-secondary);padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-variant-numeric:tabular-nums}.Qf4wN8_detail td:first-child{color:var(--dsw-alias-label-primary)}.Qf4wN8_meta{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Qf4wN8_dialogHeader{box-sizing:border-box;flex:none;height:56px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 16px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l1)}.Qf4wN8_dialogTitle{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:500;line-height:24px}.Qf4wN8_dialogClose{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:8px;background:transparent;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:28px}.Qf4wN8_dialogClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}";
++		const tagId$24 = "@deepseek-ai/dsh-client-ui-conversation/SessionBill.module.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$24) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$24;
++			tag.textContent = css$24;
++			document.head.appendChild(tag);
++		}
++		var SessionBill_module_css_default = {
++			"action": "Qf4wN8_action",
++			"body": "Qf4wN8_body",
++			"detail": "Qf4wN8_detail",
++			"dialog": "Qf4wN8_dialog",
++			"dialogClose": "Qf4wN8_dialogClose",
++			"dialogHeader": "Qf4wN8_dialogHeader",
++			"dialogTitle": "Qf4wN8_dialogTitle",
++			"meta": "Qf4wN8_meta"
++		};
++		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/view/BillingTabs.module.css.mjs
++		const css$25 = ".Bn9xV2_tabs{gap:4px;margin:2px 0 6px;display:flex}.Bn9xV2_tab{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:14px;padding:0 12px;font-size:12px;line-height:28px}.Bn9xV2_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.Bn9xV2_tabActive{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}.Bn9xV2_drillBtn{box-sizing:border-box;height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:var(--dsw-alias-bg-module-platform);border:none;border-radius:12px;padding:0 10px;font-size:12px;line-height:24px}.Bn9xV2_drillBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.Bn9xV2_sectionTitle{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-strong-13);margin:12px 0 4px;user-select:none}.Bn9xV2_row:hover td{background:var(--dsw-alias-interactive-bg-hover)}.Bn9xV2_drillPanel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);border-radius:12px;padding:12px 14px}"
++		const tagId$25 = "@deepseek-ai/dsh-client-ui-conversation/BillingTabs.module.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$25) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$25;
++			tag.textContent = css$25;
++			document.head.appendChild(tag);
++		}
++		var BillingTabs_module_css_default = {
++			"row": "Bn9xV2_row",
++			"drillBtn": "Bn9xV2_drillBtn",
++			"drillPanel": "Bn9xV2_drillPanel",
++			"sectionTitle": "Bn9xV2_sectionTitle",
++			"tab": "Bn9xV2_tab",
++			"tabActive": "Bn9xV2_tabActive",
++			"tabs": "Bn9xV2_tabs"
++		};
++		//#endregion
++		//#endregion
++		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/view/CostCharts.module.css.mjs
++		const css$26 = ".Mk7wQ2_chartCard{box-sizing:border-box;flex-direction:column;gap:10px;display:flex}.Mk7wQ2_donutWrap{align-items:center;gap:16px;display:flex;flex-wrap:wrap}.Mk7wQ2_donut{flex:none;place-items:center;display:grid}.Mk7wQ2_donut svg{grid-area:1/1}.Mk7wQ2_donutCenter{grid-area:1/1;color:var(--dsw-alias-label-primary);font:600 16px/22px var(--ds-font-family-code);font-variant-numeric:tabular-nums}.Mk7wQ2_donutLegend{flex-direction:column;gap:4px;min-width:0;flex:1;display:flex}.Mk7wQ2_donutLegendItem{align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;display:flex}.Mk7wQ2_donutSwatch{background:var(--chart-color);border-radius:2px;width:8px;height:8px;flex:none;display:inline-block}.Mk7wQ2_donutLegendValue{margin-left:auto;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}.Mk7wQ2_bars{flex-direction:column;gap:4px;display:flex}.Mk7wQ2_barRow{align-items:center;gap:8px;min-width:0;display:flex}.Mk7wQ2_barLabel{flex:none;width:36px;color:var(--dsw-alias-label-tertiary);font:400 11px/16px var(--ds-font-family-code);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.Mk7wQ2_barTrack{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:1;height:8px;min-width:0;overflow:hidden}.Mk7wQ2_barFill{background:var(--chart-color,var(--dsw-alias-label-tertiary));border-radius:999px;height:100%}.Mk7wQ2_barValue{flex:none;width:72px;color:var(--dsw-alias-label-primary);font:400 11px/16px var(--ds-font-family-code);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.Mk7wQ2_dayChart{align-items:flex-end;gap:8px;height:72px;margin-top:4px;display:flex}.Mk7wQ2_dayCol{flex:1;height:100%;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;min-width:0;display:flex}.Mk7wQ2_dayBarTrack{width:100%;max-width:40px;background:var(--dsw-alias-interactive-bg-hover);border-radius:4px 4px 2px 2px;flex:1;min-height:2px;position:relative;overflow:hidden}.Mk7wQ2_dayBarFill{background:var(--chart-color,var(--dsw-alias-label-tertiary));border-radius:4px 4px 2px 2px;position:absolute;bottom:0;left:0;right:0}.Mk7wQ2_dayLabel{color:var(--dsw-alias-label-tertiary);font:400 10px/14px var(--ds-font-family-code);white-space:nowrap}.Mk7wQ2_turnChart{align-items:flex-end;gap:calc(var(--turn-bar-w,34px)/3);height:150px;margin-top:4px;justify-content:center;display:flex}.Mk7wQ2_turnCol{height:100%;width:var(--turn-bar-w,34px);flex:none;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;min-width:0;display:flex}.Mk7wQ2_turnValue{max-width:100%;color:var(--dsw-alias-label-primary);font:400 10px/14px var(--ds-font-family-code);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.Mk7wQ2_turnBarTrack{width:100%;background:var(--dsw-alias-interactive-bg-hover);border-radius:4px 4px 2px 2px;flex:1;min-height:2px;position:relative;overflow:hidden}.Mk7wQ2_turnBarFill{background:var(--chart-color,var(--dsw-alias-label-tertiary));border-radius:4px 4px 2px 2px;position:absolute;bottom:0;left:0;right:0}.Mk7wQ2_turnLabel{max-width:100%;color:var(--dsw-alias-label-tertiary);font:400 10px/14px var(--ds-font-family-code);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.Mk7wQ2_turnPager{gap:8px;margin-top:8px;align-items:center;justify-content:center;width:max-content;align-self:center;display:flex}.Mk7wQ2_turnPagerBtn{box-sizing:border-box;height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:var(--dsw-alias-bg-module-platform);border:none;border-radius:12px;padding:0 10px;font-size:12px;line-height:24px}.Mk7wQ2_turnPagerBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.Mk7wQ2_turnPagerBtn:disabled{opacity:.45;cursor:default}.Mk7wQ2_turnPagerInfo{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}";
++		const tagId$26 = "@deepseek-ai/dsh-client-ui-conversation/CostCharts.module.css?v4";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$26) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$26;
++			tag.textContent = css$26;
++			document.head.appendChild(tag);
++		}
++		var CostCharts_module_css_default = {
++			"chartCard": "Mk7wQ2_chartCard",
++			"barFill": "Mk7wQ2_barFill",
++			"barLabel": "Mk7wQ2_barLabel",
++			"barRow": "Mk7wQ2_barRow",
++			"bars": "Mk7wQ2_bars",
++			"barTrack": "Mk7wQ2_barTrack",
++			"barValue": "Mk7wQ2_barValue",
++			"dayBarFill": "Mk7wQ2_dayBarFill",
++			"dayBarTrack": "Mk7wQ2_dayBarTrack",
++			"dayChart": "Mk7wQ2_dayChart",
++			"dayCol": "Mk7wQ2_dayCol",
++			"dayLabel": "Mk7wQ2_dayLabel",
++			"turnBarFill": "Mk7wQ2_turnBarFill",
++			"turnBarTrack": "Mk7wQ2_turnBarTrack",
++			"turnChart": "Mk7wQ2_turnChart",
++			"turnCol": "Mk7wQ2_turnCol",
++			"turnLabel": "Mk7wQ2_turnLabel",
++			"turnPager": "Mk7wQ2_turnPager",
++			"turnPagerBtn": "Mk7wQ2_turnPagerBtn",
++			"turnPagerInfo": "Mk7wQ2_turnPagerInfo",
++			"turnValue": "Mk7wQ2_turnValue",
++			"donutCenter": "Mk7wQ2_donutCenter",
++			"donutLegend": "Mk7wQ2_donutLegend",
++			"donutLegendItem": "Mk7wQ2_donutLegendItem",
++			"donutLegendValue": "Mk7wQ2_donutLegendValue",
++			"donutSwatch": "Mk7wQ2_donutSwatch",
++			"donutWrap": "Mk7wQ2_donutWrap"
++		};
++		//#endregion
++		/** Donut geometry shared by the cost composition ring. */
++		const COST_DONUT_RADIUS = 28;
++		const COST_DONUT_CIRCUMFERENCE = 2 * Math.PI * COST_DONUT_RADIUS;
++		/**
++		* Vertical bar chart for per-turn costs: one column per turn, fill height
++		* proportional to cost, in the original turn order (no cost sorting). The
++		* page size adapts to the container width so the bars roughly fill the row
++		* while keeping side margins (centered feel); the pager only renders when
++		* there is more than one page.
++		*/
++		function CostTurnChart({ rows, t, pageSize = 10 }) {
++			const chartRef = (0, react.useRef)(null);
++			const [fit, setFit] = (0, react.useState)(0);
++			const [page, setPage] = (0, react.useState)(0);
++			(0, react.useEffect)(() => {
++				const el = chartRef.current;
++				if (!el) return;
++				const measure = () => setFit(el.clientWidth);
++				measure();
++				let ro = null;
++				if (typeof ResizeObserver !== "undefined") {
++					ro = new ResizeObserver(measure);
++					ro.observe(el);
++				}
++				window.addEventListener("resize", measure);
++				return () => {
++					if (ro !== null) ro.disconnect();
++					window.removeEventListener("resize", measure);
++				};
++			}, [rows.length]);
++			// 柱宽 34px + 间隔 1/3 柱宽；按可用宽度（两侧各留 ~40px）求每页柱子数。
++			const pitch = 34 + 34 / 3;
++			const effPageSize = fit > 0 ? Math.max(4, Math.min(40, Math.round((fit - 80) / pitch))) : pageSize;
++			// 保持原有轮次顺序，不做费用排序。
++			const ordered = rows;
++			const total = Math.max(1, Math.ceil(ordered.length / effPageSize));
++			const cur = Math.min(page, total - 1);
++			const slice = ordered.slice(cur * effPageSize, cur * effPageSize + effPageSize);
++			if (slice.length === 0) return null;
++			const max = slice.reduce((m, r) => Math.max(m, Math.max(0, r.value)), 0);
++			const pos = slice.map((r) => Math.max(0, r.value)).filter((v) => v > 0);
++			// 自适应线性刻度（参考 ECharts min/max 策略）：最大值/最小值不超过
++			// 5 倍时，把纵轴锚定在 [min×0.95, max×1.05]，费用接近时也能拉开
++			// 明显高度差；差距超过 5 倍则从 0 到最大值，保持真实比例。
++			const valMin = pos.length > 0 ? Math.min(...pos) : 0;
++			const valMax = pos.length > 0 ? Math.max(...pos) : 0;
++			const ratio = valMin > 0 ? valMax / valMin : Number.POSITIVE_INFINITY;
++			const yMin = ratio <= 5 ? valMin * 0.95 : 0;
++			const yMax = ratio <= 5 ? valMax * 1.05 : valMax;
++			const span = yMax - yMin;
++			const barHeight = (v) => {
++				if (max <= 0) return 0;
++				if (!(v > 0)) return 2;
++				if (span <= 0) return 100;
++				return Math.max(0, Math.min(100, (v - yMin) / span * 100));
++			};
++			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
++				children: [(0, react_jsx_runtime.jsx)("div", {
++					ref: chartRef,
++					className: CostCharts_module_css_default.turnChart,
++					children: slice.map((r) => (0, react_jsx_runtime.jsxs)("div", {
++						className: CostCharts_module_css_default.turnCol,
++						title: r.tip,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.turnValue,
++							children: formatYuan(r.value)
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: CostCharts_module_css_default.turnBarTrack,
++							children: (0, react_jsx_runtime.jsx)("div", {
++								className: CostCharts_module_css_default.turnBarFill,
++								style: {
++									height: `${barHeight(r.value)}%`,
++									...r.color === void 0 ? {} : { ["--chart-color"]: r.color }
++								}
++							})
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.turnLabel,
++							children: r.label
++						})]
++					}, r.key))
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: CostCharts_module_css_default.turnPager,
++					children: (0, react_jsx_runtime.jsx)("span", {
++						className: CostCharts_module_css_default.turnPagerInfo,
++						children: t("billing.turnScale")
++					})
++				}), ordered.length > effPageSize && (0, react_jsx_runtime.jsxs)("div", {
++					className: CostCharts_module_css_default.turnPager,
++					children: [(0, react_jsx_runtime.jsx)("button", {
++						type: "button",
++						className: CostCharts_module_css_default.turnPagerBtn,
++						disabled: cur === 0,
++						onClick: () => setPage(Math.max(0, cur - 1)),
++						children: t("billing.turnPrev")
++					}), (0, react_jsx_runtime.jsx)("span", {
++						className: CostCharts_module_css_default.turnPagerInfo,
++						children: t("billing.turnPage", { page: cur + 1, total })
++					}), (0, react_jsx_runtime.jsx)("button", {
++						type: "button",
++						className: CostCharts_module_css_default.turnPagerBtn,
++						disabled: cur >= total - 1,
++						onClick: () => setPage(Math.min(total - 1, cur + 1)),
++						children: t("billing.turnNext")
++					})]
++				})]
++			});
++		}
++		/**
++		* Donut chart of cost composition: segments in series order, center shows
++		* the total. Renders nothing when no segment has positive cost.
++		*/
++		function CostDonut({ segments, total, t }) {
++			const parts = [];
++			let acc = 0;
++			for (const s of segments) {
++				if (!(s.value > 0)) continue;
++				const frac = total > 0 ? s.value / total : 0;
++				parts.push({
++					key: s.key,
++					color: s.color,
++					label: s.label,
++					value: s.value,
++					dash: `${frac * COST_DONUT_CIRCUMFERENCE} ${COST_DONUT_CIRCUMFERENCE}`,
++					offset: -acc * COST_DONUT_CIRCUMFERENCE
++				});
++				acc += frac;
++			}
++			if (parts.length === 0) return null;
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: CostCharts_module_css_default.donutWrap,
++				children: [(0, react_jsx_runtime.jsxs)("div", {
++					className: CostCharts_module_css_default.donut,
++					children: [(0, react_jsx_runtime.jsxs)("svg", {
++						viewBox: "0 0 64 64",
++						width: "96",
++						height: "96",
++						"aria-hidden": true,
++						children: [parts.map((p) => (0, react_jsx_runtime.jsx)("circle", {
++							cx: "32",
++							cy: "32",
++							r: COST_DONUT_RADIUS,
++							fill: "none",
++							stroke: p.color,
++							"stroke-width": "9",
++							"stroke-dasharray": p.dash,
++							"stroke-dashoffset": p.offset,
++							transform: "rotate(-90 32 32)"
++						}, p.key))]
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostCharts_module_css_default.donutCenter,
++						children: formatYuan(total)
++					})]
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: CostCharts_module_css_default.donutLegend,
++					children: parts.map((p) => (0, react_jsx_runtime.jsxs)("div", {
++						className: CostCharts_module_css_default.donutLegendItem,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.donutSwatch,
++							style: { ["--chart-color"]: p.color },
++							"aria-hidden": true
++						}), p.label, (0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.donutLegendValue,
++							children: `${formatYuan(p.value)} · ${total > 0 ? Math.round(p.value / total * 100) : 0}%`
++						})]
++					}, p.key))
++				})]
++			});
++		}
++		/**
++		* Vertical day chart: one column per entry, fill height proportional to
++		* value. Columns are expected oldest-first.
++		*/
++		function CostDayChart({ entries, color }) {
++			const max = entries.reduce((m, [, e]) => Math.max(m, e), 0);
++			return (0, react_jsx_runtime.jsx)("div", {
++				className: CostCharts_module_css_default.dayChart,
++				children: entries.map(([day, value]) => (0, react_jsx_runtime.jsxs)("div", {
++					className: CostCharts_module_css_default.dayCol,
++					title: `${day} · ${formatYuan(value)}`,
++					children: [(0, react_jsx_runtime.jsx)("div", {
++						className: CostCharts_module_css_default.dayBarTrack,
++						children: (0, react_jsx_runtime.jsx)("div", {
++							className: CostCharts_module_css_default.dayBarFill,
++							style: {
++								height: `${max > 0 ? value / max * 100 : 0}%`,
++								...color === void 0 ? {} : { ["--chart-color"]: color }
++							}
++						})
++					}), (0, react_jsx_runtime.jsx)("span", {
++						className: CostCharts_module_css_default.dayLabel,
++						children: day.slice(5)
++					})]
++				}, day))
++			});
++		}
++		//#region lib/types/client/view/SessionBill.js
++		/**
++		* Current-session bill: detailed cost statement for ONE session, fed by
++		* its `session.list` projection row (`tokenUsage`, `tokenUsageByModel`,
++		* `sessionStats`). Summary card plus per-model and bucket-composition
++		* detail tables; degrades to a no-usage note when the row carries no
++		* projection block.
++		*/
++		function SessionBillView({ api, sessionId, t }) {
++			const costCfg = useCostEstimateConfig();
++			// subscribe to currency/rate changes and refresh rates on view open
++			useCurrencyConfig();
++			(0, react.useEffect)(() => {
++				refreshExchangeRates();
++			}, []);
++			const [row, setRow] = (0, react.useState)(null);
++			const [turns, setTurns] = (0, react.useState)(null);
++			const [calls, setCalls] = (0, react.useState)(null);
++			const [callPage, setCallPage] = (0, react.useState)(0);
++			const [turnPage, setTurnPage] = (0, react.useState)(0);
++			const [capped, setCapped] = (0, react.useState)(false);
++			const [failed, setFailed] = (0, react.useState)(null);
++			const [costBuckets, setCostBuckets] = (0, react.useState)(null);
++			const lastFoldedAtRef = (0, react.useRef)(null);
++			// [billing-fix] 首次加载与打开期间周期刷新合并:列表每 5 秒轮询,仅当
++			// 会话 updatedAt 变化(有新活动)时才重新拉取明细并逐笔按请求时刻折叠,
++			// 汇总行与明细表保持同口径且追平实时用量;不活跃会话不重复拉历史。
++			(0, react.useEffect)(() => {
++				let cancelled = false;
++				setRow(null);
++				setTurns(null);
++				setCalls(null);
++				setCostBuckets(null);
++				setFailed(null);
++				lastFoldedAtRef.current = null;
++				const refold = async () => {
++					// [billing-backend] 明细由后端 session.costDetail 折叠,前端只渲染。
++					try {
++						const { result } = await api.sessions.costDetail({ sessionId });
++						if (cancelled) return;
++						if (!result.ok) {
++							setFailed(result.error?.message ?? "costDetail failed");
++							return;
++						}
++						setCapped(false);
++						setTurns(result.value.turns);
++						setCalls(result.value.calls);
++						setCostBuckets(result.value.costBuckets ?? null);
++					} catch (error) {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					}
++				};
++				const refresh = async () => {
++					try {
++						const { result } = await api.sessions.list({});
++						if (cancelled) return;
++						if (!result.ok) {
++							setFailed(result.error?.message ?? "list failed");
++							return;
++						}
++						const found = (result.value.items ?? []).find((item) => item.sessionId === sessionId);
++						if (cancelled) return;
++						setRow(found ?? null);
++						if (found !== void 0 && found.updatedAt !== lastFoldedAtRef.current) {
++							lastFoldedAtRef.current = found.updatedAt;
++							await refold();
++						}
++					} catch (error) {
++						if (!cancelled) setFailed(String(error?.message ?? error));
++					}
++				};
++				refresh();
++				const id = setInterval(() => refresh(), 5000);
++				return () => {
++					cancelled = true;
++					clearInterval(id);
++				};
++			}, [api, sessionId, costCfg.prices]);
++			const p = row?.projections?.values;
++			const usage = p?.tokenUsage;
++			const usageByModel = p?.tokenUsageByModel;
++			const stats = p?.sessionStats;
++			// [billing-backend] summary/模型/拆分金额全部来自后端折叠(calls 与
++			// costBuckets,按请求时刻计价),前端只做展示层归组。
++			const modelEntries = [];
++			let totalCost = 0;
++			if (calls !== null && calls.length > 0) {
++				const byModel = new Map();
++				for (const c of calls) {
++					totalCost += c.cost;
++					const e = byModel.get(c.model) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
++					e.cost += c.cost;
++					e.input += c.input;
++					e.read += c.read;
++					e.write += c.write;
++					e.output += c.output;
++					byModel.set(c.model, e);
++				}
++				for (const [key, e] of byModel) modelEntries.push({
++					model: key,
++					buckets: {
++						uncachedInputTokens: e.input,
++						cacheReadTokens: e.read,
++						cacheWriteTokens: e.write,
++						outputTokens: e.output
++					},
++					cost: e.cost
++				});
++			}
++			modelEntries.sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
++			const totalInput = usage !== void 0 ? billedInputTokens(usage) : 0;
++			const totalOutput = usage !== void 0 ? usage.outputTokens : 0;
++			const cacheHit = usage !== void 0 && totalInput > 0 ? Math.round(usage.cacheReadTokens / totalInput * 100) : null;
++			const bucketCost = costBuckets;
++			const modelTotal = modelEntries.reduce((sum, entry) => sum + (entry.cost ?? 0), 0);
++			const dash = t("billing.noStats");
++			// 逐笔明细分页：每页 10 行，仅当超过一页时显示分页条。
++			const CALL_PAGE_SIZE = 10;
++			const callTotal = calls !== null ? Math.max(1, Math.ceil(calls.length / CALL_PAGE_SIZE)) : 1;
++			const callCur = Math.min(callPage, callTotal - 1);
++			const callSlice = calls !== null ? calls.slice(callCur * CALL_PAGE_SIZE, callCur * CALL_PAGE_SIZE + CALL_PAGE_SIZE) : [];
++			// 轮次明细分页：每页 10 行，合计行始终为全量统计。
++			const TURN_PAGE_SIZE = 10;
++			const turnTotal = turns !== null ? Math.max(1, Math.ceil(turns.length / TURN_PAGE_SIZE)) : 1;
++			const turnCur = Math.min(turnPage, turnTotal - 1);
++			const turnSlice = turns !== null ? turns.slice(turnCur * TURN_PAGE_SIZE, turnCur * TURN_PAGE_SIZE + TURN_PAGE_SIZE) : [];
++			if (failed !== null) return (0, react_jsx_runtime.jsx)("div", {
++				className: BillingView_module_css_default.error,
++				children: `${t("billing.error")}: ${failed}`
++			});
++			if (row === null) return (0, react_jsx_runtime.jsx)("div", {
++				className: BillingView_module_css_default.loading,
++				children: t("billing.loading")
++			});
++			if (usage === void 0 && usageByModel === void 0) return (0, react_jsx_runtime.jsxs)("div", {
++				className: BillingView_module_css_default.view,
++				children: [(0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.title,
++					children: t("billing.currentTitle")
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.empty,
++					children: t("billing.noUsage")
++				})]
++			});
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: BillingView_module_css_default.view,
++				children: [(0, react_jsx_runtime.jsxs)("div", {
++					className: BillingView_module_css_default.header,
++					children: [(0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.title,
++						children: t("billing.currentTitle")
++					}), (0, react_jsx_runtime.jsxs)("div", {
++						className: SessionBill_module_css_default.meta,
++						children: [typeof p?.title === "string" && p.title !== "" ? p.title : shortSessionId(sessionId), " · ", formatMessageClock(row.updatedAt, t)]
++					})]
++				}), capped === true && (0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.partial,
++					children: t("billing.partial")
++				}), (0, react_jsx_runtime.jsxs)("div", {
++					className: BillingView_module_css_default.summary,
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: BillingView_module_css_default.summaryRow,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryTotal,
++							children: formatYuan(totalCost)
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.totalTokens", {
++								input: formatTokens(totalInput),
++								output: formatTokens(totalOutput)
++							})
++						}), cacheHit !== null && (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.cacheHit", { percent: cacheHit })
++						}), stats !== void 0 && (stats.llmMs > 0 || stats.toolMs > 0) && (0, react_jsx_runtime.jsx)("span", {
++							className: BillingView_module_css_default.summaryMeta,
++							children: t("billing.timeStats", {
++								llm: formatDuration(stats.llmMs),
++								tool: formatDuration(stats.toolMs)
++							})
++						})]
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.bar,
++						children: modelEntries.map((entry) => (0, react_jsx_runtime.jsx)("div", {
++							className: `${BillingView_module_css_default.segment} ${billingModelColor(entry.model)}`,
++							style: {
++								width: `${modelTotal > 0 && entry.cost !== null ? entry.cost / modelTotal * 100 : 0}%`
++							}
++						}, entry.model))
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.legend,
++						children: modelEntries.map((entry) => (0, react_jsx_runtime.jsxs)("span", {
++							className: BillingView_module_css_default.legendItem,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: `${BillingView_module_css_default.swatch} ${billingModelColor(entry.model)}`,
++								"aria-hidden": true
++							}), entry.model, ` ${formatYuan(entry.cost ?? 0)}`]
++						}, entry.model))
++					})]
++				}), (0, react_jsx_runtime.jsx)("div", {
++						className: BillingTabs_module_css_default.sectionTitle,
++						children: t("billing.bucketTitle")
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostCharts_module_css_default.chartCard,
++						children: (0, react_jsx_runtime.jsx)(CostDonut, {
++							segments: [{ key: "uncached", label: t("cost.uncached"), color: "var(--dsw-static-neutral-bluish-400)", value: bucketCost !== null ? bucketCost.uncached : 0 }, { key: "cacheRead", label: t("cost.cacheRead"), color: "var(--dsw-static-blue-450)", value: bucketCost !== null ? bucketCost.cacheRead : 0 }, { key: "output", label: t("cost.output"), color: "#a78bfa", value: bucketCost !== null ? bucketCost.output : 0 }],
++							total: totalCost,
++							t
++						})
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: BillingTabs_module_css_default.sectionTitle,
++						children: t("billing.turnBars")
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostCharts_module_css_default.chartCard,
++						children: (0, react_jsx_runtime.jsx)(CostTurnChart, {
++							t,
++							rows: turns !== null ? turns.map((line) => ({ key: line.turn, label: `#${line.turn}`, value: line.cost, color: billingModelColorValue(line.model), tip: `${line.model} · ${line.steps}步 · ${formatYuan(line.cost)}` })) : []
++						})
++					}), (0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.tableWrap,
++					children: (0, react_jsx_runtime.jsxs)("table", {
++						className: BillingView_module_css_default.table,
++						children: [(0, react_jsx_runtime.jsxs)("thead", {
++							children: [(0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("billing.col.model")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("cost.uncached")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("cost.cacheRead")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("cost.write")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("cost.output")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("billing.col.cost")
++								})]
++							})]
++						}), (0, react_jsx_runtime.jsxs)("tbody", {
++							children: [modelEntries.length === 0 && usage !== void 0 && (0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("td", {
++									className: BillingView_module_css_default.td,
++									children: ESTIMATED_FALLBACK_MODEL
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage.uncachedInputTokens + usage.cacheWriteTokens)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage.cacheReadTokens)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage.cacheWriteTokens)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage.outputTokens)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++									children: formatYuan(totalCost)
++								})]
++							}), modelEntries.map((entry) => (0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("td", {
++									className: BillingView_module_css_default.td,
++									children: entry.model
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens((entry.buckets.uncachedInputTokens ?? 0) + (entry.buckets.cacheWriteTokens ?? 0))
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(entry.buckets.cacheReadTokens ?? 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(entry.buckets.cacheWriteTokens ?? 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(entry.buckets.outputTokens ?? 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++									children: entry.cost === null ? dash : formatYuan(entry.cost)
++								})]
++							}, entry.model)), (0, react_jsx_runtime.jsxs)("tr", {
++								className: BillingView_module_css_default.totalRow,
++								children: [(0, react_jsx_runtime.jsx)("td", {
++									className: BillingView_module_css_default.td,
++									children: t("billing.total")
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage !== void 0 ? usage.uncachedInputTokens + usage.cacheWriteTokens : 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage !== void 0 ? usage.cacheReadTokens : 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage !== void 0 ? usage.cacheWriteTokens : 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++									children: formatTokens(usage !== void 0 ? usage.outputTokens : 0)
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++									children: formatYuan(totalCost)
++								})]
++							})]
++						})]
++					})
++				}), bucketCost !== null && (0, react_jsx_runtime.jsx)("div", {
++					className: BillingView_module_css_default.tableWrap,
++					children: (0, react_jsx_runtime.jsxs)("table", {
++						className: BillingView_module_css_default.table,
++						children: [(0, react_jsx_runtime.jsxs)("thead", {
++							children: [(0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("billing.bucketTitle")
++								}), (0, react_jsx_runtime.jsx)("th", {
++									className: BillingView_module_css_default.th,
++									children: t("billing.col.cost")
++								})]
++							})]
++						}), (0, react_jsx_runtime.jsx)("tbody", {
++							children: COST_METER_ROWS.map((row) => (0, react_jsx_runtime.jsxs)("tr", {
++								children: [(0, react_jsx_runtime.jsx)("td", {
++									className: BillingView_module_css_default.td,
++									children: [(0, react_jsx_runtime.jsx)("span", {
++										className: `${BillingView_module_css_default.swatch} ${row.color}`,
++										"aria-hidden": true
++									}), t(row.label)]
++								}), (0, react_jsx_runtime.jsx)("td", {
++									className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++									children: formatYuan(bucketCost[row.key])
++								})]
++							}, row.key))
++						})]
++					})}), turns !== null && turns.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingTabs_module_css_default.sectionTitle,
++						children: t("billing.col.turns")
++					}), turns !== null && turns.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.tableWrap,
++						children: (0, react_jsx_runtime.jsxs)("table", {
++							className: BillingView_module_css_default.table,
++							children: [(0, react_jsx_runtime.jsxs)("thead", {
++								children: [(0, react_jsx_runtime.jsxs)("tr", {
++									children: [(0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("billing.col.turn")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("billing.col.model")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("billing.col.steps")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("cost.uncached")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("cost.cacheRead")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("cost.output")
++									}), (0, react_jsx_runtime.jsx)("th", {
++										className: BillingView_module_css_default.th,
++										children: t("billing.col.cost")
++									})]
++								})]
++							}), (0, react_jsx_runtime.jsxs)("tbody", {
++								children: [turnSlice.map((line) => (0, react_jsx_runtime.jsxs)("tr", {
++									children: [(0, react_jsx_runtime.jsx)("td", {
++										className: BillingView_module_css_default.td,
++										children: `#${line.turn}`
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: BillingView_module_css_default.td,
++										children: line.model
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: line.steps
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(line.input + line.write)
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(line.read)
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(line.output)
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++										children: formatYuan(line.cost)
++									})]
++								}, line.turn)), (0, react_jsx_runtime.jsxs)("tr", {
++									className: BillingView_module_css_default.totalRow,
++									children: [(0, react_jsx_runtime.jsx)("td", {
++										className: BillingView_module_css_default.td,
++										children: t("billing.total")
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: BillingView_module_css_default.td
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: turns.reduce((sum, line) => sum + line.steps, 0)
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(turns.reduce((sum, line) => sum + line.input + line.write, 0))
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(turns.reduce((sum, line) => sum + line.read, 0))
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum}`,
++										children: formatTokens(turns.reduce((sum, line) => sum + line.output, 0))
++									}), (0, react_jsx_runtime.jsx)("td", {
++										className: `${BillingView_module_css_default.td} ${BillingView_module_css_default.tdNum} ${BillingView_module_css_default.cost}`,
++										children: formatYuan(turns.reduce((sum, line) => sum + line.cost, 0))
++									})]
++								})]
++							})
++						]})
++					}), turns !== null && turns.length > TURN_PAGE_SIZE && (0, react_jsx_runtime.jsxs)("div", {
++						className: CostCharts_module_css_default.turnPager,
++						children: [(0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: CostCharts_module_css_default.turnPagerBtn,
++							disabled: turnCur === 0,
++							onClick: () => setTurnPage(Math.max(0, turnCur - 1)),
++							children: t("billing.turnPrev")
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.turnPagerInfo,
++							children: t("billing.turnPage", { page: turnCur + 1, total: turnTotal })
++						}), (0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: CostCharts_module_css_default.turnPagerBtn,
++							disabled: turnCur >= turnTotal - 1,
++							onClick: () => setTurnPage(Math.min(turnTotal - 1, turnCur + 1)),
++							children: t("billing.turnNext")
++						})]
++					}), calls !== null && calls.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingTabs_module_css_default.sectionTitle,
++						children: t("billing.callsTitle")
++					}), calls !== null && calls.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.tableWrap,
++						children: (0, react_jsx_runtime.jsxs)("table", {
++							className: BillingView_module_css_default.table,
++							children: [(0, react_jsx_runtime.jsxs)("thead", {
++								children: [(0, react_jsx_runtime.jsxs)("tr", {
++									children: [(0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.time") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.turn") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.step") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.model") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.uncached") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.cacheRead") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.write") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("cost.output") }), (0, react_jsx_runtime.jsx)("th", { className: BillingView_module_css_default.th, children: t("billing.col.cost") })]
++								})]
++							}), (0, react_jsx_runtime.jsxs)("tbody", {
++								children: [callSlice.map((call) => (0, react_jsx_runtime.jsxs)("tr", {
++									children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: formatMessageClock(call.time, t) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: `#${call.turn}` }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: call.step }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: call.model }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(call.input + call.write) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(call.read) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(call.write) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(call.output) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum + " " + BillingView_module_css_default.cost, children: formatYuan(call.cost) })]
++								}, `${call.turn}:${call.step}`)), (0, react_jsx_runtime.jsxs)("tr", {
++									className: BillingView_module_css_default.totalRow,
++									children: [(0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td, children: t("billing.total") }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(calls.reduce((sum, c) => sum + c.input + c.write, 0)) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(calls.reduce((sum, c) => sum + c.read, 0)) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(calls.reduce((sum, c) => sum + c.write, 0)) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum, children: formatTokens(calls.reduce((sum, c) => sum + c.output, 0)) }), (0, react_jsx_runtime.jsx)("td", { className: BillingView_module_css_default.td + " " + BillingView_module_css_default.tdNum + " " + BillingView_module_css_default.cost, children: formatYuan(calls.reduce((sum, c) => sum + c.cost, 0)) })]
++								})]
++							})]
++						})
++					}), calls !== null && calls.length > CALL_PAGE_SIZE && (0, react_jsx_runtime.jsxs)("div", {
++						className: CostCharts_module_css_default.turnPager,
++						children: [(0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: CostCharts_module_css_default.turnPagerBtn,
++							disabled: callCur === 0,
++							onClick: () => setCallPage(Math.max(0, callCur - 1)),
++							children: t("billing.turnPrev")
++						}), (0, react_jsx_runtime.jsx)("span", {
++							className: CostCharts_module_css_default.turnPagerInfo,
++							children: t("billing.turnPage", { page: callCur + 1, total: callTotal })
++						}), (0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: CostCharts_module_css_default.turnPagerBtn,
++							disabled: callCur >= callTotal - 1,
++							onClick: () => setCallPage(Math.min(callTotal - 1, callCur + 1)),
++							children: t("billing.turnNext")
++						})]
++					})
++					]
++			});
++		}
++		/**
++		* Settings-section body rendering the all-sessions cost statement inline
++		* (moved from the sidebar footer action into the settings panel).
++		*/
++		function SettingsBillingSection({ api, t }) {
++			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
++				children: [(0, react_jsx_runtime.jsx)("div", {
++					className: SessionBill_module_css_default.dialogHeader,
++					children: (0, react_jsx_runtime.jsx)("div", {
++						className: SessionBill_module_css_default.dialogTitle,
++						children: t("billing.title")
++					})
++				}), (0, react_jsx_runtime.jsx)("div", {
++					className: SessionBill_module_css_default.body,
++					children: (0, react_jsx_runtime.jsx)(BillingView, {
++						api,
++						t
++					})
++				})]
++			});
++		}
++		//#endregion
+ 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
+ 		const css$18 = ".Sh0Q9G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Sh0Q9G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Sh0Q9G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Sh0Q9G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Sh0Q9G_triggerIcon{flex:none;display:inline-flex}.Sh0Q9G_triggerIcon svg{width:14px;height:14px}.Sh0Q9G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Sh0Q9G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Sh0Q9G_trigger:has(.Sh0Q9G_triggerIcon) .Sh0Q9G_triggerLabel{display:none}}.Sh0Q9G_chevronOpen{transform:rotate(180deg)}";
+ 		const tagId$18 = "@deepseek-ai/dsh-client-ui-conversation/PermissionSelect.module.css";
+@@ -3325,7 +5105,7 @@
+ 			textRefs: [],
+ 			hint: null
+ 		};
+-		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
++		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, api, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
+ 			const input = useInput((s) => s);
+ 			const notice = useNotices((s) => s);
+ 			const lexicon = useLexicon((s) => s);
+@@ -3859,6 +5639,13 @@
+ 											useProjection,
+ 											t
+ 										}),
++										(0, react_jsx_runtime.jsx)(CostMeter, {
++											useProjection,
++											useSession,
++											t,
++											api,
++											sessionId
++										}),
+ 										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 											label: t("input.stop"),
+ 											side: "top",
+@@ -4015,6 +5802,854 @@
+ 				})]
+ 			});
+ 		}
++		//#region \0dsh-css:/custom/patched/CostPanel.module.css.mjs
++		const css$21 = ".f7cQ9_card{border-bottom:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding:16px 0;display:flex}.f7cQ9_header{align-items:flex-start;gap:12px;display:flex}.f7cQ9_switchWrap{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;flex:none;font-size:13px;line-height:20px;display:inline-flex;cursor:pointer;user-select:none}.f7cQ9_switchLabel{white-space:nowrap}.f7cQ9_switchInput{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}.f7cQ9_switchTrack{position:relative;background:var(--dsw-alias-border-l3);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;width:34px;height:20px;flex:none;transition:background .18s ease,border-color .18s ease}.f7cQ9_switchKnob{position:absolute;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);border-radius:50%;top:2px;left:2px;width:14px;height:14px;transition:transform .18s cubic-bezier(.4,0,.2,1)}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack{background:var(--dsw-alias-state-business-primary);border-color:transparent}.f7cQ9_switchInput:checked+.f7cQ9_switchTrack .f7cQ9_switchKnob{transform:translateX(14px)}.f7cQ9_switchInput:focus-visible+.f7cQ9_switchTrack{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.f7cQ9_panel{background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;flex-direction:column;gap:10px;padding:10px;display:flex;transition:opacity .2s ease,filter .2s ease}.f7cQ9_panelOff{opacity:.45;filter:saturate(.35);pointer-events:none}.f7cQ9_toolbar{align-items:center;gap:8px;display:flex}.f7cQ9_segmented{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;flex:1;gap:2px;padding:2px;display:flex;min-width:0}.f7cQ9_segBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:1;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:12px;line-height:24px;padding:0 10px;display:flex;transition:color .15s ease,background .15s ease}.f7cQ9_segBtn:hover{color:var(--dsw-alias-label-secondary)}.f7cQ9_segBtnActive{background:var(--dsw-alias-bg-module-platform);box-shadow:0 1px 2px rgba(0,0,0,.12);color:var(--dsw-alias-label-primary);font-weight:600}.f7cQ9_segDot{background:var(--dsw-alias-state-business-primary);border-radius:50%;width:6px;height:6px;flex:none}.f7cQ9_resetBtn{background:0 0;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:none;align-items:center;gap:4px;font-size:11px;line-height:18px;padding:2px 7px;display:inline-flex;transition:color .15s ease,background .15s ease}.f7cQ9_resetBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.f7cQ9_periodBar{color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,currentColor 24%,transparent);background:color-mix(in srgb,currentColor 8%,transparent);border-radius:9px;flex-direction:column;gap:3px;padding:7px 10px;display:flex}.f7cQ9_periodPeak{color:var(--dsw-alias-state-warn-primary)}.f7cQ9_periodOffpeak{color:var(--dsw-alias-state-success-primary)}.f7cQ9_periodStandard{color:var(--dsw-alias-state-business-primary)}.f7cQ9_periodRow{align-items:center;gap:8px;display:flex}.f7cQ9_periodDot{background:currentColor;border-radius:50%;width:8px;height:8px;flex:none;animation:f7cQ9_pulse 2.4s ease-out infinite}.f7cQ9_periodLabel{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.f7cQ9_periodName{color:currentColor;font-size:12px;font-weight:600;line-height:18px}.f7cQ9_periodMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_bucketList{flex-direction:column;gap:8px;display:flex}.f7cQ9_bucketRow{align-items:center;gap:10px;grid-template-columns:64px minmax(0,1fr) auto;display:grid}.f7cQ9_bucketLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}.f7cQ9_field{position:relative;align-items:center;min-width:0;display:flex}.f7cQ9_priceInput{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:400 12px/18px var(--ds-font-family-code);font-variant-numeric:tabular-nums;height:28px;outline:none;padding:0 36px 0 8px;transition:border-color .15s ease,box-shadow .15s ease;width:100%;-moz-appearance:textfield}.f7cQ9_priceInput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent)}.f7cQ9_priceInput::placeholder{color:var(--dsw-alias-label-dimmed)}.f7cQ9_priceInput::-webkit-inner-spin-button,.f7cQ9_priceInput::-webkit-outer-spin-button{-webkit-appearance:none;appearance:none;margin:0}.f7cQ9_unit{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;pointer-events:none;position:absolute;right:8px}.f7cQ9_clearBtn{background:0 0;border:none;border-radius:4px;color:var(--dsw-alias-label-tertiary);cursor:pointer;height:16px;place-items:center;position:absolute;right:32px;width:16px;display:grid;transition:color .15s ease,background .15s ease}.f7cQ9_clearBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.f7cQ9_bucketHint{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);font-size:10px;line-height:16px;white-space:nowrap}.f7cQ9_footnote{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyRow{align-items:center;gap:10px;padding:7px 8px;display:flex}.f7cQ9_notifyIcon{background:var(--dsw-alias-interactive-bg-hover);border-radius:8px;color:var(--dsw-alias-label-secondary);flex:none;height:30px;place-items:center;width:30px;display:grid}.f7cQ9_notifyText{flex:1;flex-direction:column;gap:1px;min-width:0;display:flex}.f7cQ9_notifyTitle{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.f7cQ9_notifyDesc{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_notifyDivider{background:var(--dsw-alias-border-l2);height:1px;margin:2px 0}@keyframes f7cQ9_pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 40%,transparent)}70%{box-shadow:0 0 0 7px color-mix(in srgb,currentColor 0%,transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 0%,transparent)}}.f7cQ9_pickBtn{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);border-radius:10px;box-sizing:border-box;color:var(--dsw-alias-state-business-primary);cursor:pointer;flex:1;align-items:center;justify-content:center;gap:8px;font-size:14px;line-height:22px;font-weight:500;height:60px;min-width:0;padding:0 16px;display:flex;transition:border-color .15s ease,background .15s ease,color .15s ease}.f7cQ9_pickBtn:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}.f7cQ9_pickBtn[data-active=true]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent);border-color:var(--dsw-alias-state-business-primary)}.f7cQ9_pickBtn svg{flex:none}.f7cQ9_currencyRate{flex-direction:column;gap:2px;display:flex}.f7cQ9_currencyRateValue{color:var(--dsw-alias-label-primary);font:500 12px/18px var(--ds-font-family-code);font-variant-numeric:tabular-nums}.f7cQ9_currencyRateMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.f7cQ9_currencyMenu{z-index:100;position:absolute;top:calc(100% + 4px);right:0;min-width:190px;max-height:150px;overflow-y:auto;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-inverted);box-shadow:var(--dsw-shadow-lv3);border-radius:12px;padding:6px;flex-direction:column;gap:2px;display:flex}.f7cQ9_currencyMenu::-webkit-scrollbar{width:6px}.f7cQ9_currencyMenu::-webkit-scrollbar-thumb{background:var(--dsh-scrollbar-thumb,var(--dsw-alias-scrollbar-bg-l2));border-radius:3px}.f7cQ9_currencyMenu::-webkit-scrollbar-thumb:hover{background:var(--dsh-scrollbar-thumb-hover,var(--dsw-alias-scrollbar-hover-l2))}.f7cQ9_currencyMenuItem{background:0 0;border:none;border-radius:8px;box-sizing:border-box;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px;line-height:20px;padding:5px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;white-space:nowrap}.f7cQ9_currencyMenuItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.f7cQ9_currencyMenuItemActive{color:var(--dsw-alias-label-primary);font-weight:600}.f7cQ9_currencyMenuTick{color:var(--dsw-alias-state-business-primary);flex:none}.f7cQ9_currencySub{flex-direction:column;gap:6px;margin-top:4px;display:flex}.f7cQ9_currencyManualRow{align-items:center;gap:8px;display:flex;flex-wrap:wrap}.f7cQ9_currencyManualLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}";
++		const tagId$21 = "@deepseek-ai/dsh-client-ui-conversation/CostPanel.module.css?v4";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$21) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			tag.dataset.pluginCss = tagId$21;
++			tag.textContent = css$21;
++			document.head.appendChild(tag);
++		}
++		var CostEstimateRow_module_css_default = {
++			"card": "f7cQ9_card",
++			"header": "f7cQ9_header",
++			"switchWrap": "f7cQ9_switchWrap",
++			"switchLabel": "f7cQ9_switchLabel",
++			"switchInput": "f7cQ9_switchInput",
++			"switchTrack": "f7cQ9_switchTrack",
++			"switchKnob": "f7cQ9_switchKnob",
++			"panel": "f7cQ9_panel",
++			"panelOff": "f7cQ9_panelOff",
++			"toolbar": "f7cQ9_toolbar",
++			"segmented": "f7cQ9_segmented",
++			"segBtn": "f7cQ9_segBtn",
++			"segBtnActive": "f7cQ9_segBtnActive",
++			"segDot": "f7cQ9_segDot",
++			"resetBtn": "f7cQ9_resetBtn",
++			"periodBar": "f7cQ9_periodBar",
++			"periodPeak": "f7cQ9_periodPeak",
++			"periodOffpeak": "f7cQ9_periodOffpeak",
++			"periodStandard": "f7cQ9_periodStandard",
++			"periodRow": "f7cQ9_periodRow",
++			"periodDot": "f7cQ9_periodDot",
++			"periodLabel": "f7cQ9_periodLabel",
++			"periodName": "f7cQ9_periodName",
++			"periodMeta": "f7cQ9_periodMeta",
++			"bucketList": "f7cQ9_bucketList",
++			"bucketRow": "f7cQ9_bucketRow",
++			"bucketLabel": "f7cQ9_bucketLabel",
++			"field": "f7cQ9_field",
++			"priceInput": "f7cQ9_priceInput",
++			"clearBtn": "f7cQ9_clearBtn",
++			"unit": "f7cQ9_unit",
++			"bucketHint": "f7cQ9_bucketHint",
++			"footnote": "f7cQ9_footnote",
++			"notifyRow": "f7cQ9_notifyRow",
++			"notifyIcon": "f7cQ9_notifyIcon",
++			"notifyText": "f7cQ9_notifyText",
++			"notifyTitle": "f7cQ9_notifyTitle",
++			"notifyDesc": "f7cQ9_notifyDesc",
++			"notifyDivider": "f7cQ9_notifyDivider",
++			"pickBtn": "f7cQ9_pickBtn",
++			"currencyRate": "f7cQ9_currencyRate",
++			"currencyRateValue": "f7cQ9_currencyRateValue",
++			"currencyRateMeta": "f7cQ9_currencyRateMeta",
++			"currencyMenu": "f7cQ9_currencyMenu",
++			"currencyMenuItem": "f7cQ9_currencyMenuItem",
++			"currencyMenuItemActive": "f7cQ9_currencyMenuItemActive",
++			"currencyMenuTick": "f7cQ9_currencyMenuTick",
++			"currencySub": "f7cQ9_currencySub",
++			"currencyManualRow": "f7cQ9_currencyManualRow",
++			"currencyManualLabel": "f7cQ9_currencyManualLabel"
++		};
++		//#endregion
++		/** Models with editable custom prices in the cost-estimate row. */
++		const COST_EDIT_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"];
++		/** Price buckets edited per model, in display order. */
++		const COST_PRICE_KEYS = [
++			["cacheRead", "settings.cost.cacheRead"],
++			["cacheMiss", "settings.cost.cacheMiss"],
++			["output", "settings.cost.output"]
++		];
++		/** Locale key for one pricing-period name. */
++		function costPeriodKey(period) {
++			return period === "peak" ? "settings.cost.period.peak" : period === "offpeak" ? "settings.cost.period.offpeak" : "settings.cost.period.standard";
++		}
++		/**
++		* General Settings row for the conversation cost estimate: an enabled
++		* switch, a live peak/off-peak period strip, and a per-model price
++		* editor behind a segmented model switcher. Blank inputs keep the
++		* built-in rate for that bucket; the built-in rate is visible in the
++		* input placeholder and as the reference hint on the right.
++		*/
++		/**
++		* General Settings row for the billing display currency: a pill dropdown
++		* matching the built-in agent-preset/workspace/language selectors, plus
++		* for non-CNY codes the effective exchange rate (auto-fetched with
++		* staleness/offline states) and an optional manual override
++		* ("1 USD = ? CNY").
++		*/
++		function CurrencyRow({ setCode, setManualRate, t }) {
++			const cfg = useCurrencyConfig();
++			const [cache, setCache] = (0, react.useState)(() => readRateCache());
++			const [manualText, setManualText] = (0, react.useState)(() => {
++				const manual = currencySettings?.store.getSnapshot().manualRate;
++				return typeof manual === "number" ? String(manual) : "";
++			});
++			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
++			const menuRootRef = (0, react.useRef)(null);
++			(0, react.useEffect)(() => {
++				refreshExchangeRates().then(() => {
++					setCache(readRateCache());
++				});
++			}, []);
++			(0, react.useEffect)(() => {
++				if (!menuOpen) return;
++				const onPointerDown = (e) => {
++					if (e.target instanceof Node && menuRootRef.current?.contains(e.target) === true) return;
++					setMenuOpen(false);
++				};
++				const onKeyDown = (e) => {
++					if (e.key === "Escape") setMenuOpen(false);
++				};
++				document.addEventListener("pointerdown", onPointerDown);
++				document.addEventListener("keydown", onKeyDown);
++				return () => {
++					document.removeEventListener("pointerdown", onPointerDown);
++					document.removeEventListener("keydown", onKeyDown);
++				};
++			}, [menuOpen]);
++			const code = cfg.code;
++			const manual = typeof currencySettings?.store.getSnapshot().manualRate === "number" ? currencySettings.store.getSnapshot().manualRate : null;
++			const metaKey = cfg.source === "manual" ? "settings.currency.manualActive" : cfg.source === "stale" ? "settings.currency.stale" : "settings.currency.auto";
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: EnterBehaviorRow_module_css_default.row,
++				children: [(0, react_jsx_runtime.jsxs)("div", {
++					className: EnterBehaviorRow_module_css_default.rowText,
++					children: [(0, react_jsx_runtime.jsx)("div", {
++						className: EnterBehaviorRow_module_css_default.title,
++						children: t("settings.currency.title")
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: EnterBehaviorRow_module_css_default.desc,
++						children: t("settings.currency.description")
++					}), code !== "CNY" && (0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.currencySub,
++						children: [cfg.source === "failed" ? (0, react_jsx_runtime.jsx)("div", {
++							className: CostEstimateRow_module_css_default.currencyRateMeta,
++							children: t("settings.currency.failed")
++						}) : (0, react_jsx_runtime.jsxs)("div", {
++							className: CostEstimateRow_module_css_default.currencyRate,
++							children: [(0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.currencyRateValue,
++								children: t("settings.currency.rate", { rate: cfg.rate.toFixed(4), name: t("settings.currency.name." + code) })
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.currencyRateMeta,
++								children: t(metaKey)
++							})]
++						}), (0, react_jsx_runtime.jsxs)("div", {
++							className: CostEstimateRow_module_css_default.currencyManualRow,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: CostEstimateRow_module_css_default.currencyManualLabel,
++								children: t("settings.currency.manualLabel", { name: t("settings.currency.name." + code) })
++							}), (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.field,
++								children: [(0, react_jsx_runtime.jsx)("input", {
++									type: "number",
++									step: "any",
++									min: 0,
++									className: CostEstimateRow_module_css_default.priceInput,
++									"aria-label": t("settings.currency.manualLabel", { name: t("settings.currency.name." + code) }),
++									value: manualText,
++									placeholder: cache?.rates?.[code] != null ? (1 / cache.rates[code]).toFixed(4) : "",
++									title: t("settings.currency.manualHint"),
++									onChange: (event) => {
++										const raw = event.target.value;
++										setManualText(raw);
++										setManualRate(raw === "" ? null : Number(raw));
++									}
++								}), (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.unit,
++									children: "CNY"
++								}), manual !== null && (0, react_jsx_runtime.jsx)("button", {
++									type: "button",
++									className: CostEstimateRow_module_css_default.clearBtn,
++									title: t("settings.currency.restore"),
++									onClick: () => {
++										setManualRate(null);
++										setManualText("");
++									},
++									children: "×"
++								})]
++							}), (0, react_jsx_runtime.jsxs)("button", {
++								type: "button",
++								className: CostEstimateRow_module_css_default.resetBtn,
++								onClick: () => {
++									setManualRate(null);
++									setManualText("");
++								},
++								children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline14, { size: 12 }), t("settings.currency.restore")]
++							})]
++						})]
++					})]
++				}), (0, react_jsx_runtime.jsxs)("div", {
++					ref: menuRootRef,
++					style: { position: "relative" },
++					children: [(0, react_jsx_runtime.jsxs)("button", {
++						type: "button",
++						className: EnterBehaviorRow_module_css_default.selector,
++						"aria-haspopup": "menu",
++						"aria-expanded": menuOpen,
++						onClick: () => {
++							setMenuOpen(!menuOpen);
++						},
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							children: `${t("settings.currency.name." + code)} ${CURRENCY_SYMBOLS[code]}`
++						}), (0, react_jsx_runtime.jsx)("svg", {
++							className: EnterBehaviorRow_module_css_default.chevron,
++							width: 12,
++							height: 12,
++							viewBox: "0 0 12 12",
++							fill: "none",
++							"aria-hidden": true,
++							children: (0, react_jsx_runtime.jsx)("path", {
++								d: "M3 4.5L6 7.5L9 4.5",
++								stroke: "currentColor",
++								strokeWidth: 1.5,
++								strokeLinecap: "round",
++								strokeLinejoin: "round"
++							})
++						})]
++					}), menuOpen && (0, react_jsx_runtime.jsx)("div", {
++						className: CostEstimateRow_module_css_default.currencyMenu,
++						role: "menu",
++						children: BILLING_CURRENCIES.map(([c, sym]) => (0, react_jsx_runtime.jsxs)("button", {
++							type: "button",
++							role: "menuitem",
++							className: clsx(CostEstimateRow_module_css_default.currencyMenuItem, code === c ? CostEstimateRow_module_css_default.currencyMenuItemActive : void 0),
++							onClick: () => {
++								setCode(c);
++								setMenuOpen(false);
++							},
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								children: `${t("settings.currency.name." + c)} ${sym}`
++							}), code === c && (0, react_jsx_runtime.jsx)("svg", {
++								className: CostEstimateRow_module_css_default.currencyMenuTick,
++								width: 12,
++								height: 12,
++								viewBox: "0 0 12 12",
++								fill: "none",
++								"aria-hidden": true,
++								children: (0, react_jsx_runtime.jsx)("path", {
++									d: "M2 6.5L4.5 9L10 3.5",
++									stroke: "currentColor",
++									strokeWidth: 1.5,
++									strokeLinecap: "round",
++									strokeLinejoin: "round"
++								})
++							})]
++						}, c))
++					})]
++				})]
++			});
++		}
++		function CostEstimateRow({ setEnabled, setPrice, t }) {
++			const config = useCostEstimateConfig();
++			const prices = config.prices ?? {};
++			const [model, setModel] = (0, react.useState)(COST_EDIT_MODELS[0]);
++			const [now, setNow] = (0, react.useState)(() => new Date());
++			(0, react.useEffect)(() => {
++				const timer = setInterval(() => setNow(new Date()), 60000);
++				return () => clearInterval(timer);
++			}, []);
++			const enabled = config.enabled;
++			const period = pricingPeriod(now);
++			const hasCustom = (m) => COST_PRICE_KEYS.some(([key]) => prices[m]?.[key] !== void 0);
++			const custom = prices[model];
++			const base = estimatedPriceSet(model, now);
++			const periodName = t(costPeriodKey(period));
++			const periodClass = period === "peak" ? CostEstimateRow_module_css_default.periodPeak : period === "offpeak" ? CostEstimateRow_module_css_default.periodOffpeak : CostEstimateRow_module_css_default.periodStandard;
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: CostEstimateRow_module_css_default.card,
++				children: [(0, react_jsx_runtime.jsxs)("div", {
++					className: CostEstimateRow_module_css_default.header,
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: EnterBehaviorRow_module_css_default.rowText,
++						children: [(0, react_jsx_runtime.jsx)("div", {
++							className: EnterBehaviorRow_module_css_default.title,
++							children: t("settings.cost.title")
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: EnterBehaviorRow_module_css_default.desc,
++							children: t("settings.cost.description")
++						})]
++					}), (0, react_jsx_runtime.jsxs)("label", {
++						className: CostEstimateRow_module_css_default.switchWrap,
++						title: t("settings.cost.enable"),
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostEstimateRow_module_css_default.switchLabel,
++							children: t("settings.cost.enable")
++						}), (0, react_jsx_runtime.jsx)("input", {
++							type: "checkbox",
++							className: CostEstimateRow_module_css_default.switchInput,
++							checked: enabled,
++							onChange: (event) => {
++								setEnabled(event.target.checked);
++							}
++						}), (0, react_jsx_runtime.jsxs)("span", {
++							className: CostEstimateRow_module_css_default.switchTrack,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: CostEstimateRow_module_css_default.switchKnob
++							})]
++						})]
++					})]
++				}), (0, react_jsx_runtime.jsxs)("div", {
++					className: clsx(CostEstimateRow_module_css_default.panel, enabled ? void 0 : CostEstimateRow_module_css_default.panelOff),
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.toolbar,
++						children: [(0, react_jsx_runtime.jsx)("div", {
++							className: CostEstimateRow_module_css_default.segmented,
++							children: COST_EDIT_MODELS.map((m) => (0, react_jsx_runtime.jsxs)("button", {
++								type: "button",
++								"aria-pressed": model === m,
++								className: clsx(CostEstimateRow_module_css_default.segBtn, model === m ? CostEstimateRow_module_css_default.segBtnActive : void 0),
++								onClick: () => {
++									setModel(m);
++								},
++								children: [hasCustom(m) ? (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.segDot,
++									"aria-hidden": true
++								}) : null, m]
++							}, m))
++						}), hasCustom(model) ? (0, react_jsx_runtime.jsxs)("button", {
++							type: "button",
++							className: CostEstimateRow_module_css_default.resetBtn,
++							title: t("settings.cost.reset"),
++							onClick: () => {
++								COST_PRICE_KEYS.forEach(([key]) => setPrice(model, key, void 0));
++							},
++							children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline14, { size: 12 }), t("settings.cost.reset")]
++						}) : null]
++					}), (0, react_jsx_runtime.jsxs)("div", {
++						className: clsx(CostEstimateRow_module_css_default.periodBar, periodClass),
++						children: [(0, react_jsx_runtime.jsxs)("div", {
++							className: CostEstimateRow_module_css_default.periodRow,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: CostEstimateRow_module_css_default.periodDot,
++								"aria-hidden": true
++							}), (0, react_jsx_runtime.jsx)("span", {
++								className: CostEstimateRow_module_css_default.periodLabel,
++								children: t("settings.cost.period.now")
++							}), (0, react_jsx_runtime.jsx)("span", {
++								className: CostEstimateRow_module_css_default.periodName,
++								children: periodName
++							})]
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: CostEstimateRow_module_css_default.periodMeta,
++							children: t(period === "current" ? "settings.cost.period.metaStandard" : "settings.cost.period.meta")
++						})]
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostEstimateRow_module_css_default.bucketList,
++						children: COST_PRICE_KEYS.map(([key, label]) => {
++							const builtin = base[key];
++							const customValue = custom?.[key];
++							return (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.bucketRow,
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.bucketLabel,
++									children: t(label)
++								}), (0, react_jsx_runtime.jsxs)("div", {
++									className: CostEstimateRow_module_css_default.field,
++									children: [(0, react_jsx_runtime.jsx)("input", {
++										type: "number",
++										step: "any",
++										min: 0,
++										className: CostEstimateRow_module_css_default.priceInput,
++										"aria-label": t(label),
++										value: customValue ?? "",
++										placeholder: formatPrice(builtin),
++										title: t("settings.cost.builtinHint", { period: periodName, price: formatPrice(builtin) }),
++										onChange: (event) => {
++											const raw = event.target.value;
++											setPrice(model, key, raw === "" ? void 0 : Number(raw));
++										}
++									}), customValue !== void 0 ? (0, react_jsx_runtime.jsx)("button", {
++										type: "button",
++										className: CostEstimateRow_module_css_default.clearBtn,
++										title: t("settings.cost.clear"),
++										onClick: () => {
++											setPrice(model, key, void 0);
++										},
++										children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFill14, { size: 12 })
++									}) : null, (0, react_jsx_runtime.jsx)("span", {
++										className: CostEstimateRow_module_css_default.unit,
++										children: t("settings.cost.unit")
++									})]
++								}), (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.bucketHint,
++									children: t("settings.cost.builtin", { price: formatPrice(builtin) })
++								})]
++							}, key);
++						})
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostEstimateRow_module_css_default.footnote,
++						children: t("settings.cost.footnote")
++					})]
++				})]
++			});
++		}
++		//#endregion
++		//#region dsh-notify: session-completion alert settings row (local patch)
++		/** Read one notification preference; absent means enabled. */
++		function readNotifyPref(key) {
++			try {
++				return localStorage.getItem(key) !== "0";
++			} catch (error) {
++				return true;
++			}
++		}
++		/** Write one notification preference. */
++		function writeNotifyPref(key, value) {
++			try {
++				localStorage.setItem(key, value ? "1" : "0");
++			} catch (error) {}
++		}
++		/** Read the selected completion-sound source; unknown values fall back to chime. */
++		function readNotifySource() {
++			try {
++				const value = localStorage.getItem("dsh.notify.sound.source");
++				return value === "bell" || value === "custom" ? value : "chime";
++			} catch (error) {
++				return "chime";
++			}
++		}
++		/** Persist the selected completion-sound source. */
++		function writeNotifySource(source) {
++			try {
++				localStorage.setItem("dsh.notify.sound.source", source);
++			} catch (error) {}
++		}
++		/** Read the uploaded custom sound as a data URL (null when absent). */
++		function readNotifyData() {
++			try {
++				return localStorage.getItem("dsh.notify.sound.data") || null;
++			} catch (error) {
++				return null;
++			}
++		}
++		/** Persist or clear the uploaded custom sound data URL. */
++		function writeNotifyData(data) {
++			try {
++				if (data === null) localStorage.removeItem("dsh.notify.sound.data");
++				else localStorage.setItem("dsh.notify.sound.data", data);
++			} catch (error) {}
++		}
++		/** Read the uploaded file's display name ("" when absent). */
++		function readNotifyName() {
++			try {
++				return localStorage.getItem("dsh.notify.sound.name") || "";
++			} catch (error) {
++				return "";
++			}
++		}
++		/** Persist or clear the uploaded file's display name. */
++		function writeNotifyName(name) {
++			try {
++				if (name === "") localStorage.removeItem("dsh.notify.sound.name");
++				else localStorage.setItem("dsh.notify.sound.name", name);
++			} catch (error) {}
++		}
++		/** Read the notification volume (0..1, default 0.8). */
++		function readNotifyVolume() {
++			try {
++				const raw = localStorage.getItem("dsh.notify.sound.volume");
++				if (raw !== null && raw !== "") {
++					const parsed = Number(raw);
++					if (Number.isFinite(parsed)) return Math.min(1, Math.max(0, parsed));
++				}
++			} catch (error) {}
++			return 0.8;
++		}
++		/** Persist the notification volume. */
++		function writeNotifyVolume(volume) {
++			try {
++				localStorage.setItem("dsh.notify.sound.volume", String(volume));
++			} catch (error) {}
++		}
++		/** Read the notification gain (1..3, default 1). */
++		function readNotifyGain() {
++			try {
++				const raw = localStorage.getItem("dsh.notify.sound.gain");
++				if (raw !== null && raw !== "") {
++					const parsed = Number(raw);
++					if (Number.isFinite(parsed)) return Math.min(3, Math.max(1, parsed));
++				}
++			} catch (error) {}
++			return 1;
++		}
++		/** Persist the notification gain. */
++		function writeNotifyGain(gain) {
++			try {
++				localStorage.setItem("dsh.notify.sound.gain", String(gain));
++			} catch (error) {}
++		}
++		/** Preview one completion sound from a user gesture (unlocked audio). */
++		function playPreviewSound(source, data, volume, gain) {
++			const level = (typeof volume === "number" ? Math.min(1, Math.max(0, volume)) : 0.8) * (typeof gain === "number" ? Math.min(3, Math.max(1, gain)) : 1);
++			if (source === "custom" && data !== null && data !== "") {
++				try {
++					const audio = new Audio(data);
++					const play = level <= 1 ? (audio.volume = level, audio.play()) : playPreviewBoosted(audio, level);
++					if (play !== void 0) play.catch(() => {});
++				} catch (error) {}
++				return;
++			}
++			if (typeof AudioContext === "undefined" && typeof webkitAudioContext === "undefined") return;
++			try {
++				const Ctor = typeof AudioContext !== "undefined" ? AudioContext : webkitAudioContext;
++				const audio = new Ctor();
++				const notes = source === "bell" ? [[880, 0, 0.35], [1318.51, 0.18, 0.55]] : [[659.25, 0, 0.45], [880, 0.28, 0.8]];
++				const wave = source === "bell" ? "triangle" : "sine";
++				const play = () => {
++					const now = audio.currentTime;
++					for (const [freq, at, dur] of notes) {
++						const osc = audio.createOscillator();
++						const gain = audio.createGain();
++						osc.type = wave;
++						osc.frequency.value = freq;
++						gain.gain.setValueAtTime(0.0001, now + at);
++						gain.gain.exponentialRampToValueAtTime(0.12 * level, now + at + 0.025);
++						gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
++						osc.connect(gain);
++						gain.connect(audio.destination);
++						osc.start(now + at);
++						osc.stop(now + at + dur + 0.05);
++					}
++					window.setTimeout(() => {
++						audio.close().catch(() => {});
++					}, 2000);
++				};
++				if (audio.state === "suspended") audio.resume().then(play).catch(() => {});
++				else play();
++			} catch (error) {}
++		}
++		/** Play a custom preview with a gain beyond 1 via a Web-Audio gain node. */
++		function playPreviewBoosted(audio, level) {
++			try {
++				const Ctor = typeof AudioContext !== "undefined" ? AudioContext : webkitAudioContext;
++				const context = new Ctor();
++				const source = context.createMediaElementSource(audio);
++				const gain = context.createGain();
++				gain.gain.value = level;
++				source.connect(gain);
++				gain.connect(context.destination);
++				audio.volume = 1;
++				return audio.play();
++			} catch (error) {
++				audio.volume = 1;
++				return audio.play();
++			}
++		}
++		/** Debounced auto-preview while a slider is being dragged. */
++		let previewTimer = 0;
++		function schedulePreview(source, data, volume, gain) {
++			if (previewTimer !== 0) window.clearTimeout(previewTimer);
++			previewTimer = window.setTimeout(() => {
++				previewTimer = 0;
++				playPreviewSound(source, data, volume, gain);
++			}, 250);
++		}
++		/** Max size of an uploaded custom sound (1 MB). */
++		const NOTIFY_MAX_BYTES = 1024 * 1024;
++		/**
++		* General Settings row for session-completion alerts: two card rows
++		* with switch toggles for the completion chime and the dynamic page
++		* title, persisted to localStorage and honored by the client
++		* runtime's completion hook (dsh-notify).
++		*/
++		function NotifyRow({ t }) {
++			const [sound, setSound] = (0, react.useState)(() => readNotifyPref("dsh.notify.sound"));
++			const [dynamicTitle, setDynamicTitle] = (0, react.useState)(() => readNotifyPref("dsh.notify.title"));
++			const [source, setSource] = (0, react.useState)(() => readNotifySource());
++			const [customData, setCustomData] = (0, react.useState)(() => readNotifyData());
++			const [fileName, setFileName] = (0, react.useState)(() => readNotifyName());
++			const [pickError, setPickError] = (0, react.useState)(null);
++			const [volume, setVolume] = (0, react.useState)(() => readNotifyVolume());
++			const [gain, setGain] = (0, react.useState)(() => readNotifyGain());
++			const handleFile = (file) => {
++				if (!file) return;
++				if (file.size > NOTIFY_MAX_BYTES) {
++					setPickError(t("settings.notify.customTooLarge"));
++					return;
++				}
++				const reader = new FileReader();
++				reader.onload = () => {
++					const data = String(reader.result);
++					setCustomData(data);
++					writeNotifyData(data);
++					setFileName(file.name);
++					writeNotifyName(file.name);
++					setPickError(null);
++				};
++				reader.onerror = () => {
++					setPickError(t("settings.notify.customReadError"));
++				};
++				reader.readAsDataURL(file);
++			};
++			const pickFile = (event) => {
++				const file = event.target.files && event.target.files[0];
++				event.target.value = "";
++				handleFile(file);
++			};
++			const dropFile = (event) => {
++				event.preventDefault();
++				const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
++				handleFile(file);
++			};
++			const removeCustom = () => {
++				setCustomData(null);
++				writeNotifyData(null);
++				setFileName("");
++				writeNotifyName("");
++				setPickError(null);
++			};
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: CostEstimateRow_module_css_default.card,
++				children: [(0, react_jsx_runtime.jsx)("div", {
++					className: CostEstimateRow_module_css_default.header,
++					children: (0, react_jsx_runtime.jsxs)("div", {
++						className: EnterBehaviorRow_module_css_default.rowText,
++						children: [(0, react_jsx_runtime.jsx)("div", {
++							className: EnterBehaviorRow_module_css_default.title,
++							children: t("settings.notify.title")
++						}), (0, react_jsx_runtime.jsx)("div", {
++							className: EnterBehaviorRow_module_css_default.desc,
++							children: t("settings.notify.description")
++						})]
++					})
++				}), (0, react_jsx_runtime.jsxs)("div", {
++					className: CostEstimateRow_module_css_default.panel,
++					children: [(0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.notifyRow,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostEstimateRow_module_css_default.notifyIcon,
++							children: (0, react_jsx_runtime.jsx)("svg", {
++								width: 16,
++								height: 16,
++								viewBox: "0 0 24 24",
++								fill: "none",
++								xmlns: "http://www.w3.org/2000/svg",
++								children: (0, react_jsx_runtime.jsx)("path", {
++									d: "M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z",
++									fill: "currentColor"
++								})
++							})
++						}), (0, react_jsx_runtime.jsxs)("div", {
++							className: CostEstimateRow_module_css_default.notifyText,
++							children: [(0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyTitle,
++								children: t("settings.notify.sound")
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyDesc,
++								children: t("settings.notify.soundDesc")
++							})]
++						}), (0, react_jsx_runtime.jsxs)("label", {
++							className: CostEstimateRow_module_css_default.switchWrap,
++							title: t("settings.notify.sound"),
++							children: [(0, react_jsx_runtime.jsx)("input", {
++								type: "checkbox",
++								className: CostEstimateRow_module_css_default.switchInput,
++								checked: sound,
++								onChange: (event) => {
++									const next = event.target.checked;
++									setSound(next);
++									writeNotifyPref("dsh.notify.sound", next);
++								}
++							}), (0, react_jsx_runtime.jsxs)("span", {
++								className: CostEstimateRow_module_css_default.switchTrack,
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.switchKnob
++								})]
++							})]
++						})]
++					}), sound && (0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.notifyRow,
++						children: [(0, react_jsx_runtime.jsx)("div", {
++							className: CostEstimateRow_module_css_default.notifyText,
++							children: [(0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyTitle,
++								children: t("settings.notify.soundSource")
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyDesc,
++								children: t("settings.notify.soundSourceDesc")
++							}), (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsxs)("div", {
++									className: CostEstimateRow_module_css_default.segmented,
++									children: [["chime", t("settings.notify.sourceChime")], ["bell", t("settings.notify.sourceBell")], ["custom", t("settings.notify.sourceCustom")]].map(([value, label]) => (0, react_jsx_runtime.jsx)("button", {
++										type: "button",
++										className: CostEstimateRow_module_css_default.segBtn + (source === value ? " " + CostEstimateRow_module_css_default.segBtnActive : ""),
++										onClick: () => {
++											setSource(value);
++											writeNotifySource(value);
++											setPickError(null);
++										},
++										children: label
++									}, value))
++								}), (0, react_jsx_runtime.jsx)("button", {
++									type: "button",
++									className: CostEstimateRow_module_css_default.resetBtn,
++									onClick: () => {
++										playPreviewSound(source, customData, volume, gain);
++									},
++									children: t("settings.notify.customPreview")
++								})]
++							}), (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.notifyDesc,
++									children: t("settings.notify.volume")
++								}), (0, react_jsx_runtime.jsx)("input", {
++									type: "range",
++									min: 0,
++									max: 1,
++									step: 0.05,
++									value: volume,
++									style: {
++										accentColor: "var(--dsw-alias-state-business-primary)",
++										flex: "1",
++										minWidth: "0"
++									},
++									"aria-label": t("settings.notify.volume"),
++									onChange: (event) => {
++										const next = Number(event.target.value);
++										setVolume(next);
++										writeNotifyVolume(next);
++										schedulePreview(source, customData, next, gain);
++									}
++								}), (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.footnote,
++									children: Math.round(volume * 100) + "%"
++								})]
++							}), (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.notifyDesc,
++									children: t("settings.notify.gain")
++								}), (0, react_jsx_runtime.jsx)("input", {
++									type: "range",
++									min: 1,
++									max: 3,
++									step: 0.05,
++									value: gain,
++									style: {
++										accentColor: "var(--dsw-alias-state-business-primary)",
++										flex: "1",
++										minWidth: "0"
++									},
++									"aria-label": t("settings.notify.gain"),
++									onChange: (event) => {
++										const next = Number(event.target.value);
++										setGain(next);
++										writeNotifyGain(next);
++										schedulePreview(source, customData, volume, next);
++									}
++								}), (0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.footnote,
++									children: Math.round(gain * 100) + "%"
++								})]
++							}), source === "custom" && (0, react_jsx_runtime.jsxs)("div", {
++								className: CostEstimateRow_module_css_default.toolbar,
++								children: [(0, react_jsx_runtime.jsxs)("label", {
++									className: CostEstimateRow_module_css_default.pickBtn,
++									"data-active": customData !== null,
++									style: {
++										cursor: "pointer"
++									},
++									onDragOver: (event) => {
++										event.preventDefault();
++										event.dataTransfer.dropEffect = "copy";
++									},
++									onDrop: dropFile,
++									children: [(0, react_jsx_runtime.jsx)("svg", {
++										width: 18,
++										height: 18,
++										viewBox: "0 0 24 24",
++										fill: "none",
++										xmlns: "http://www.w3.org/2000/svg",
++										children: (0, react_jsx_runtime.jsx)("path", {
++											d: "M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z",
++											fill: "currentColor"
++										})
++									}), t("settings.notify.customPick"), (0, react_jsx_runtime.jsx)("input", {
++										type: "file",
++										accept: ".mp3,.wav,.ogg,.webm,audio/*",
++										style: {
++											display: "none"
++										},
++										onChange: pickFile
++									})]
++								}), customData !== null && (0, react_jsx_runtime.jsx)("button", {
++									type: "button",
++									className: CostEstimateRow_module_css_default.resetBtn,
++									onClick: removeCustom,
++									children: t("settings.notify.customRemove")
++								})]
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.footnote,
++								children: pickError !== null ? pickError : (fileName !== "" ? fileName + " · " : "") + t("settings.notify.customFormat")
++							})]
++
++						})]
++					}), (0, react_jsx_runtime.jsx)("div", {
++						className: CostEstimateRow_module_css_default.notifyDivider
++					}), (0, react_jsx_runtime.jsxs)("div", {
++						className: CostEstimateRow_module_css_default.notifyRow,
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: CostEstimateRow_module_css_default.notifyIcon,
++							children: (0, react_jsx_runtime.jsx)("svg", {
++								width: 16,
++								height: 16,
++								viewBox: "0 0 24 24",
++								fill: "none",
++								xmlns: "http://www.w3.org/2000/svg",
++								children: (0, react_jsx_runtime.jsx)("path", {
++									d: "M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 18H4V8h16v12zm0-14H4V4h16v2z",
++									fill: "currentColor"
++								})
++							})
++						}), (0, react_jsx_runtime.jsxs)("div", {
++							className: CostEstimateRow_module_css_default.notifyText,
++							children: [(0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyTitle,
++								children: t("settings.notify.dynamicTitle")
++							}), (0, react_jsx_runtime.jsx)("div", {
++								className: CostEstimateRow_module_css_default.notifyDesc,
++								children: t("settings.notify.titleDesc")
++							})]
++						}), (0, react_jsx_runtime.jsxs)("label", {
++							className: CostEstimateRow_module_css_default.switchWrap,
++							title: t("settings.notify.dynamicTitle"),
++							children: [(0, react_jsx_runtime.jsx)("input", {
++								type: "checkbox",
++								className: CostEstimateRow_module_css_default.switchInput,
++								checked: dynamicTitle,
++								onChange: (event) => {
++									const next = event.target.checked;
++									setDynamicTitle(next);
++									writeNotifyPref("dsh.notify.title", next);
++								}
++							}), (0, react_jsx_runtime.jsxs)("span", {
++								className: CostEstimateRow_module_css_default.switchTrack,
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: CostEstimateRow_module_css_default.switchKnob
++								})]
++							})]
++						})]
++					})]
++				})]
++			});
++		}
+ 		//#endregion
+ 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
+ 		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
+@@ -4906,8 +7541,10 @@
+ 			const rest = [];
+ 			for (const block of content) {
+ 				const b = block;
+-				if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
+-				else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
++				if (b.type === "text" && typeof b.text === "string") {
++					/* [image-relay-patch] hidden 标记的文本块（图片的 GLM 描述）不渲染 */
++					if (b.hidden !== true) texts.push(b.text);
++				} else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
+ 				else rest.push(block);
+ 			}
+ 			return {
+@@ -5170,7 +7807,7 @@
+ 		});
+ 		//#endregion
+ 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
+-		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}";
++		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}.Md3f7G_foldGroup{flex-direction:column;gap:16px;min-width:0;display:flex}.Md3f7G_foldBar{box-sizing:border-box;width:100%;height:30px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:var(--dsw-alias-interactive-bg-hover);border:none;border-radius:8px;align-items:center;gap:6px;padding:0 10px;font-size:12px;line-height:20px;display:flex}.Md3f7G_foldBar:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-secondary)}.Md3f7G_foldChevron{flex:none;display:inline-flex;transition:transform .12s}.Md3f7G_foldChevronOpen{transform:rotate(180deg)}.Md3f7G_foldText{min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.Md3f7G_foldBody{flex-direction:column;gap:16px;min-width:0;display:flex}";
+ 		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -5185,6 +7822,12 @@
+ 			"callRow": "Md3f7G_callRow",
+ 			"turnStatusClock": "Md3f7G_turnStatusClock",
+ 			"flowItem": "Md3f7G_flowItem",
++			"foldBar": "Md3f7G_foldBar",
++			"foldBody": "Md3f7G_foldBody",
++			"foldChevron": "Md3f7G_foldChevron",
++			"foldChevronOpen": "Md3f7G_foldChevronOpen",
++			"foldGroup": "Md3f7G_foldGroup",
++			"foldText": "Md3f7G_foldText",
+ 			"scroll": "Md3f7G_scroll",
+ 			"hint": "Md3f7G_hint",
+ 			"toBottomSlot": "Md3f7G_toBottomSlot",
+@@ -5240,6 +7883,21 @@
+ 			});
+ 		});
+ 		//#endregion
++		/** Collapsed-turn preview: the final reply's text blocks only (reasoning stays folded). */
++		const FoldReplyPreview = (0, react.memo)(function FoldReplyPreview({ nodeKey, useSession, loadImage, fileMentions, t }) {
++			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
++			if (node === void 0 || node.kind !== "assistant-step") return null;
++			const data = node.data;
++			const blocks = data.blocks.filter((block) => block.kind !== "reasoning");
++			return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {
++				blocks,
++				streaming: false,
++				interrupted: data.status === "interrupted",
++				loadImage,
++				mentions: void 0,
++				t
++			});
++		});
+ 		//#region lib/types/client/chat/ChatView.js
+ 		/** Active column host when present; otherwise the view-local scroller. */
+ 		function scrollerOf(from) {
+@@ -5329,6 +7987,38 @@
+ 		* The chat view slot entry: pure component over the composed props; each
+ 		* ordered business Node crosses the keyed renderer seat.
+ 		*/
++		/** Node kinds folded as level-2 content beneath the preceding level-1 node. */
++		const FOLD_LEVEL2_KINDS = new Set(["assistant-step", "tool-call", "tool-result", "model-retry", "turn-tail", "turn-error", "turn-max-tokens"]);
++		/** Split the flat node order into fold groups anchored at level-1 nodes (user messages & friends). */
++		function foldGroups(order, nodeStore) {
++			const groups = [];
++			let current = null;
++			for (const key of order) {
++				const kind = nodeStore.get(key)?.kind;
++				if (kind !== void 0 && !FOLD_LEVEL2_KINDS.has(kind)) {
++					current = { key, children: [] };
++					groups.push(current);
++				} else if (current === null) {
++					groups.push({ key: null, children: [key] });
++				} else {
++					current.children.push(key);
++				}
++			}
++			return groups;
++		}
++		/** Collapsed-group summary line: "回复 2 · 工具调用 5 · 结果 5" (the previewed final reply is excluded). */
++		function foldSummary(children, nodeStore, t, previewKey) {
++			const counts = new Map();
++			for (const key of children) {
++				if (key === previewKey) continue;
++				const kind = nodeStore.get(key)?.kind;
++				if (kind !== void 0) counts.set(kind, (counts.get(kind) ?? 0) + 1);
++			}
++			const labelOf = (kind) => kind === "assistant-step" ? t("chat.fold.reply") : kind === "tool-call" ? t("chat.fold.tool") : kind === "tool-result" ? t("chat.fold.result") : kind === "model-retry" ? t("chat.fold.retry") : kind === "turn-tail" ? t("chat.fold.tail") : kind === "turn-error" || kind === "turn-max-tokens" ? t("chat.fold.error") : kind;
++			const parts = [];
++			for (const [kind, count] of counts) parts.push(`${labelOf(kind)} ${count}`);
++			return parts.length > 0 ? parts.join(" · ") : "";
++		}
+ 		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
+ 			const order = useSession((s) => s.chat.order);
+ 			const nodeStore = useSession((s) => s.chat.nodes);
+@@ -5364,6 +8054,18 @@
+ 			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
+ 			const lastKey = order.at(-1) ?? null;
+ 			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
++			const groups = (0, react.useMemo)(() => foldGroups(order, nodeStore), [order, nodeStore]);
++			const [foldOpenKeys, setFoldOpenKeys] = (0, react.useState)(() => new Set());
++			const lastGroupKey = groups.length > 0 ? groups[groups.length - 1].key : null;
++			const isFoldOpen = (group) => group.key === null || group.key === lastGroupKey || foldOpenKeys.has(group.key);
++			const toggleFold = (key) => {
++				setFoldOpenKeys((prev) => {
++					const next = new Set(prev);
++					if (next.has(key)) next.delete(key);
++					else next.add(key);
++					return next;
++				});
++			};
+ 			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
+ 			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
+ 			const toBottom = (el) => {
+@@ -5501,6 +8203,61 @@
+ 				}
+ 				loadOlder();
+ 			};
++			const renderSeat = (nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
++				nodeKey,
++				useSession,
++				selectedCallId,
++				cwd,
++				openFile,
++				inspectCall,
++				forkAt,
++				loadImage,
++				fileMentions,
++				renderSlot,
++				t
++			}, nodeKey);
++			const lastReplyKey = (children) => {
++				let last = null;
++				for (const key of children) {
++					if (nodeStore.get(key)?.kind === "assistant-step") last = key;
++				}
++				return last;
++			};
++			const renderFoldGroup = (group) => {
++				const open = isFoldOpen(group);
++				const previewKey = open ? null : lastReplyKey(group.children);
++				return (0, react_jsx_runtime.jsxs)("div", {
++					className: ChatView_module_css_default.flowItem,
++					"data-chat-fold-group": group.key,
++					children: [renderSeat(group.key), group.children.length > 0 && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
++						children: [(0, react_jsx_runtime.jsx)("button", {
++							type: "button",
++							className: ChatView_module_css_default.foldBar,
++							"aria-expanded": open,
++							"aria-label": t(open ? "chat.fold.toggleClose" : "chat.fold.toggleOpen"),
++							onClick: () => {
++								toggleFold(group.key);
++							},
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: clsx(ChatView_module_css_default.foldChevron, open && ChatView_module_css_default.foldChevronOpen),
++								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
++							}), (0, react_jsx_runtime.jsx)("span", {
++								className: ChatView_module_css_default.foldText,
++								children: foldSummary(group.children, nodeStore, t, previewKey)
++							})]
++						}), open ? (0, react_jsx_runtime.jsx)("div", {
++							className: ChatView_module_css_default.foldBody,
++							children: group.children.map(renderSeat)
++						}) : previewKey !== null && (0, react_jsx_runtime.jsx)(FoldReplyPreview, {
++							nodeKey: previewKey,
++							useSession,
++							loadImage,
++							fileMentions,
++							t
++						})]
++					})]
++				}, group.key);
++			};
+ 			return (0, react_jsx_runtime.jsx)("div", {
+ 				className: ChatView_module_css_default.root,
+ 				children: (0, react_jsx_runtime.jsxs)("div", {
+@@ -5531,19 +8288,7 @@
+ 									children: loadingOlder ? t("loading") : t("chat.loadOlder")
+ 								})
+ 							}),
+-							order.map((nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
+-								nodeKey,
+-								useSession,
+-								selectedCallId,
+-								cwd,
+-								openFile,
+-								inspectCall,
+-								forkAt,
+-								loadImage,
+-								fileMentions,
+-								renderSlot,
+-								t
+-							}, nodeKey)),
++							groups.map((group) => group.key === null ? group.children.map(renderSeat) : renderFoldGroup(group)),
+ 							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
+ 								startTime: runningTurnStart,
+ 								t
+@@ -5827,10 +8572,128 @@
+ 			"stats.tokensPerSecond": "{throughput} tok/s",
+ 			"stats.cacheHit": "缓存命中 {percent}%",
+ 			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
++			"stats.cost": "预估费用 {cost}",
++			"stats.costModel": "{model}：输入 {input} · 缓存 {read} · 输出 {output} · 约 {cost}",
++			"cost.panelTitle": "费用预估",
++			"cost.panelAria": "预估费用 {cost}",
++			"cost.uncached": "输入（未命中）",
++			"cost.cacheRead": "输入（缓存命中）",
++			"cost.output": "输出",
++			"view.billing": "账单",
++			"billing.nav": "总账单",
++			"billing.title": "费用账单",
++			"billing.subtitle": "按会话汇总的预估费用（token 用量 × 价格表）",
++			"billing.col.session": "会话",
++			"billing.col.updated": "更新时间",
++			"billing.col.rounds": "轮次·步数",
++			"billing.col.input": "输入",
++			"billing.col.output": "输出",
++			"billing.col.cost": "预估费用",
++			"billing.total": "合计",
++			"billing.sessions": "{count} 个会话 · {withUsage} 个有用量",
++			"billing.totalTokens": "总输入 {input} · 总输出 {output}",
++			"billing.empty": "暂无会话数据",
++			"billing.loading": "加载中…",
++			"billing.error": "账单加载失败",
++			"billing.noStats": "—",
++			"billing.currentTitle": "当前会话账单",
++			"billing.noUsage": "该会话暂无用量记录",
++			"billing.cacheHit": "缓存命中率 {percent}%",
++			"billing.timeStats": "LLM {llm} · 工具调用 {tool}",
++			"billing.col.model": "模型",
++			"billing.bucketTitle": "费用构成",
++			"billing.col.turn": "轮次",
++			"billing.col.steps": "步数",
++			"billing.col.time": "时间",
++			"billing.col.step": "步",
++			"billing.tab.sessions": "按会话",
++			"billing.tab.models": "按模型",
++			"billing.tab.days": "按日期",
++			"billing.col.turns": "轮次",
++			"billing.col.usage": "用量会话",
++			"billing.attrSub": "（含子代理 {cost}）",
++			"billing.derivedFrom": "派生会话:费用已含于父会话,此处不再重复计费",
++			"billing.drill": "展开明细",
++			"billing.collapse": "收起明细",
++			"billing.callsTitle": "逐笔明细",
++			"billing.expandTurn": "展开第 {turn} 轮明细",
++			"billing.collapseTurn": "收起第 {turn} 轮明细",
++			"billing.turnBars": "每轮费用",
++			"billing.turnScale": "按轮次顺序 · 自适应刻度放大差异 · 悬停看明细",
++			"billing.turnPrev": "上一页",
++			"billing.turnNext": "下一页",
++			"billing.turnPage": "第 {page} / {total} 页",
++			"billing.partial": "会话过大，仅显示最近活动明细（汇总为完整值）",
++			"billing.closeLabel": "关闭账单",
++			"billing.back": "返回账单",
++			"billing.balance": "账户余额 {balance}",
++			"cost.write": "缓存写入",
+ 			"settings.enter.title": "繁忙时 Enter 键行为",
+ 			"settings.enter.description": "仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为",
+ 			"settings.enter.queue": "排队发送",
+ 			"settings.enter.steer": "插话发送",
++			"settings.cost.title": "费用预估",
++			"settings.cost.description": "在会话统计栏显示预估费用；价格留空则用内置价（8/17 后按北京时区自动峰谷价）",
++			"settings.cost.enable": "显示预估费用",
++			"settings.cost.cacheRead": "缓存命中",
++			"settings.cost.cacheMiss": "未命中",
++			"settings.cost.output": "输出",
++			"settings.cost.period.standard": "标准价",
++			"settings.cost.period.peak": "峰时价",
++			"settings.cost.period.offpeak": "谷时价",
++			"settings.cost.period.now": "当前适用：",
++			"settings.cost.period.meta": "峰时 09:00–12:00 / 14:00–18:00（北京时间）",
++			"settings.cost.period.metaStandard": "8/17 起按北京时间自动切换峰谷价",
++			"settings.cost.unit": "¥/M",
++			"settings.cost.builtinHint": "内置价（{period}）：¥{price} / 百万 tokens",
++			"settings.cost.builtin": "内置 ¥{price}",
++			"settings.cost.reset": "恢复内置价",
++			"settings.cost.clear": "清除自定义价",
++			"settings.cost.footnote": "单位：元 / 百万 tokens；留空则使用内置价",
++			"settings.currency.title": "账单货币",
++			"settings.currency.description": "账单、费用预估与余额的显示货币；汇率自动获取，可手动覆盖",
++			"settings.currency.name.CNY": "人民币",
++			"settings.currency.name.USD": "美元",
++			"settings.currency.name.EUR": "欧元",
++			"settings.currency.name.GBP": "英镑",
++			"settings.currency.name.JPY": "日元",
++			"settings.currency.name.HKD": "港币",
++			"settings.currency.name.SGD": "新加坡元",
++			"settings.currency.name.AUD": "澳元",
++			"settings.currency.name.CAD": "加元",
++			"settings.currency.name.CHF": "瑞士法郎",
++			"settings.currency.name.KRW": "韩元",
++			"settings.currency.name.TWD": "新台币",
++			"settings.currency.name.INR": "印度卢比",
++			"settings.currency.name.RUB": "俄罗斯卢布",
++			"settings.currency.name.BRL": "巴西雷亚尔",
++			"settings.currency.rate": "1 人民币 ≈ {rate} {name}",
++			"settings.currency.auto": "汇率自动更新",
++			"settings.currency.manualActive": "手动汇率生效中",
++			"settings.currency.stale": "汇率来自缓存，可能已过期",
++			"settings.currency.failed": "暂时无法获取汇率，金额保持人民币显示",
++			"settings.currency.manualLabel": "手动汇率（1 {name} = ? 人民币）",
++			"settings.currency.manualHint": "留空即用自动汇率；例如 1 美元 = 7.2 人民币",
++			"settings.currency.restore": "恢复自动",
++			"settings.notify.title": "会话完成提醒",
++			"settings.notify.description": "会话完成时播放提示音，并在网页标题动态显示运行状态",
++			"settings.notify.sound": "提示音",
++			"settings.notify.dynamicTitle": "动态标题",
++			"settings.notify.soundDesc": "会话完成时播放提示音",
++			"settings.notify.soundSource": "提示音",
++			"settings.notify.soundSourceDesc": "选择完成提示音；上传的音频保存在当前浏览器",
++			"settings.notify.volume": "音量",
++			"settings.notify.gain": "增益",
++			"settings.notify.sourceChime": "默认提示音",
++			"settings.notify.sourceBell": "清脆铃声",
++			"settings.notify.sourceCustom": "自定义音频",
++			"settings.notify.customPick": "选择音频文件",
++			"settings.notify.customPreview": "试听",
++			"settings.notify.customRemove": "移除",
++			"settings.notify.customFormat": "支持 MP3 / WAV / OGG / WEBM · 建议时长 ≤ 3 秒 · 文件 ≤ 1 MB",
++			"settings.notify.customTooLarge": "文件超过 1 MB，请换一个更短的音频",
++			"settings.notify.customReadError": "读取音频文件失败，请重试",
++			"settings.notify.titleDesc": "网页标题实时显示运行状态",
+ 			"access.confirm.title": "确认启用 Full access？",
+ 			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
+ 			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
+@@ -5857,6 +8720,14 @@
+ 			"chat.loadError": "历史加载失败：{message}（{code}）",
+ 			"chat.loadOlder": "加载更早",
+ 			"chat.toBottom": "回到底部",
++			"chat.fold.reply": "回复",
++			"chat.fold.tool": "工具调用",
++			"chat.fold.result": "结果",
++			"chat.fold.retry": "重试",
++			"chat.fold.tail": "收尾",
++			"chat.fold.error": "错误",
++			"chat.fold.toggleOpen": "展开本轮详情",
++			"chat.fold.toggleClose": "收起本轮详情",
+ 			"message.extraBlock": "附加内容块",
+ 			"message.contextInjection": "上下文注入",
+ 			"message.contextRecall": "跨会话召回",
+@@ -5992,10 +8863,127 @@
+ 			"stats.tokensPerSecond": "{throughput} tok/s",
+ 			"stats.cacheHit": "Cache hit {percent}%",
+ 			"stats.tokens": "Input {input} tok · Output {output} tok",
++			"stats.cost": "est. cost {cost}",
++			"stats.costModel": "{model}: input {input} · cached {read} · output {output} · ≈{cost}",
++			"cost.panelTitle": "Estimated cost",
++			"cost.panelAria": "Estimated cost {cost}",
++			"cost.uncached": "Input (miss)",
++			"cost.cacheRead": "Input (cache read)",
++			"cost.output": "Output",
++			"view.billing": "Billing",
++			"billing.nav": "Billing",
++			"billing.title": "Cost statement",
++			"billing.subtitle": "Estimated cost per session (token usage × price table)",
++			"billing.col.session": "Session",
++			"billing.col.updated": "Updated",
++			"billing.col.rounds": "Rounds·Steps",
++			"billing.col.input": "Input",
++			"billing.col.output": "Output",
++			"billing.col.cost": "Est. cost",
++			"billing.total": "Total",
++			"billing.sessions": "{count} sessions · {withUsage} with usage",
++			"billing.totalTokens": "Total input {input} · total output {output}",
++			"billing.empty": "No session data yet",
++			"billing.loading": "Loading…",
++			"billing.error": "Failed to load statement",
++			"billing.noStats": "—",
++			"billing.currentTitle": "Current session statement",
++			"billing.noUsage": "No usage recorded for this session",
++			"billing.cacheHit": "Cache hit {percent}%",
++			"billing.timeStats": "LLM {llm} · Tool {tool}",
++			"billing.col.model": "Model",
++			"billing.bucketTitle": "Cost composition",
++			"billing.col.turn": "Turn",
++			"billing.col.steps": "Steps",
++			"billing.col.time": "Time",
++			"billing.col.step": "Step",
++			"billing.tab.sessions": "By session",
++			"billing.tab.models": "By model",
++			"billing.tab.days": "By day",
++			"billing.col.turns": "Rounds",
++			"billing.col.usage": "Usage sessions",
++			"billing.attrSub": " (incl. subagents {cost})",
++			"billing.drill": "Expand detail",
++			"billing.collapse": "Collapse detail",
++			"billing.callsTitle": "Per-call detail",
++			"billing.expandTurn": "Expand turn {turn}",
++			"billing.collapseTurn": "Collapse turn {turn}",
++			"billing.turnBars": "Cost per turn",
++			"billing.turnScale": "In turn order · adaptive scale · hover for detail",
++			"billing.turnPrev": "Prev",
++			"billing.turnNext": "Next",
++			"billing.turnPage": "Page {page} / {total}",
++			"billing.partial": "Session too large — recent activity only (totals are complete)",
++			"billing.closeLabel": "Close billing",
++			"billing.back": "Back to statement",
++			"billing.balance": "Account balance {balance}",
++			"cost.write": "Cache write",
+ 			"settings.enter.title": "Enter behavior while busy",
+ 			"settings.enter.description": "Busy only; Cmd/Ctrl+Enter uses the other behavior",
+ 			"settings.enter.queue": "Queue",
+ 			"settings.enter.steer": "Steer",
++			"settings.cost.title": "Cost estimate",
++			"settings.cost.description": "Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak after Aug 17, Beijing time)",
++			"settings.cost.enable": "Show estimated cost",
++			"settings.cost.cacheRead": "cache read",
++			"settings.cost.cacheMiss": "cache miss",
++			"settings.cost.output": "output",
++			"settings.cost.period.standard": "Standard rate",
++			"settings.cost.period.peak": "Peak rate",
++			"settings.cost.period.offpeak": "Off-peak rate",
++			"settings.cost.period.now": "Currently: ",
++			"settings.cost.period.meta": "Peak 09:00–12:00 / 14:00–18:00 (Beijing time)",
++			"settings.cost.period.metaStandard": "Auto peak/off-peak from Aug 17, Beijing time",
++			"settings.cost.unit": "¥/M",
++			"settings.cost.builtinHint": "Built-in rate ({period}): ¥{price} per 1M tokens",
++			"settings.cost.builtin": "built-in ¥{price}",
++			"settings.cost.reset": "Reset to built-in",
++			"settings.cost.clear": "Clear custom price",
++			"settings.cost.footnote": "Unit: CNY per 1M tokens; blank = built-in rate",
++			"settings.currency.title": "Billing currency",
++			"settings.currency.description": "Display currency for bills, cost estimates and balance; rates are fetched automatically and can be overridden",
++			"settings.currency.name.CNY": "Chinese Yuan",
++			"settings.currency.name.USD": "US Dollar",
++			"settings.currency.name.EUR": "Euro",
++			"settings.currency.name.GBP": "British Pound",
++			"settings.currency.name.JPY": "Japanese Yen",
++			"settings.currency.name.HKD": "Hong Kong Dollar",
++			"settings.currency.name.SGD": "Singapore Dollar",
++			"settings.currency.name.AUD": "Australian Dollar",
++			"settings.currency.name.CAD": "Canadian Dollar",
++			"settings.currency.name.CHF": "Swiss Franc",
++			"settings.currency.name.KRW": "South Korean Won",
++			"settings.currency.name.TWD": "New Taiwan Dollar",
++			"settings.currency.name.INR": "Indian Rupee",
++			"settings.currency.name.RUB": "Russian Ruble",
++			"settings.currency.name.BRL": "Brazilian Real",
++			"settings.currency.rate": "1 CNY ≈ {rate} {name}",
++			"settings.currency.auto": "Auto-updated rate",
++			"settings.currency.manualActive": "Manual rate active",
++			"settings.currency.stale": "Rate from cache — may be stale",
++			"settings.currency.failed": "Rates unavailable — amounts stay in CNY",
++			"settings.currency.manualLabel": "Manual rate (1 {name} = ? CNY)",
++			"settings.currency.manualHint": "Leave blank for the auto rate; e.g. 1 USD = 7.2 CNY",
++			"settings.currency.restore": "Restore auto",
++			"settings.notify.title": "Session completion alerts",
++			"settings.notify.description": "Play a completion chime and show live session status in the page title",
++			"settings.notify.sound": "Notification sound",
++			"settings.notify.dynamicTitle": "Dynamic page title",
++			"settings.notify.soundDesc": "Play a chime when a session completes",
++			"settings.notify.soundSource": "Sound",
++			"settings.notify.soundSourceDesc": "Pick the completion sound; uploaded audio is stored in this browser",
++			"settings.notify.volume": "Volume",
++			"settings.notify.gain": "Gain",
++			"settings.notify.sourceChime": "Default chime",
++			"settings.notify.sourceBell": "Bell",
++			"settings.notify.sourceCustom": "Custom audio",
++			"settings.notify.customPick": "Choose audio file",
++			"settings.notify.customPreview": "Preview",
++			"settings.notify.customRemove": "Remove",
++			"settings.notify.customFormat": "MP3 / WAV / OGG / WEBM · keep under 3 seconds · ≤ 1 MB",
++			"settings.notify.customTooLarge": "File exceeds 1 MB — pick a shorter clip",
++			"settings.notify.customReadError": "Could not read the audio file — please retry",
++			"settings.notify.titleDesc": "Live session status in the page title",
+ 			"access.confirm.title": "Enable Full access?",
+ 			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
+ 			"access.confirm.acknowledge": "I understand the risks and want to continue",
+@@ -6022,6 +9010,14 @@
+ 			"chat.loadError": "Failed to load history: {message} ({code})",
+ 			"chat.loadOlder": "Load earlier",
+ 			"chat.toBottom": "Back to bottom",
++			"chat.fold.reply": "reply",
++			"chat.fold.tool": "tool call",
++			"chat.fold.result": "result",
++			"chat.fold.retry": "retry",
++			"chat.fold.tail": "tail",
++			"chat.fold.error": "error",
++			"chat.fold.toggleOpen": "Expand this turn",
++			"chat.fold.toggleClose": "Collapse this turn",
+ 			"message.extraBlock": "Extra content block",
+ 			"message.contextInjection": "Context injection",
+ 			"message.contextRecall": "Session recall",
+@@ -9460,6 +12456,7 @@
+ 			const workspaces = ctx.workspaces;
+ 			const layout = ctx.layout;
+ 			const slots = ctx.slots;
++			const connection = ctx.get("connection");
+ 			registerConversationNodes(ctx);
+ 			registerChatNodeRenderers(ctx);
+ 			ctx.effect(() => ctx.locale.register(NS, {
+@@ -9481,6 +12478,70 @@
+ 					}
+ 				})
+ 			}, EnterBehaviorRow));
++			costEstimateSettings = new CostEstimateSettings(ctx.settingsScope.bind({ namespace: CONVERSATION_SETTINGS_NAMESPACE }));
++			ctx.slots.inject("settings.general.item", () => ctx.slots.register({
++				name: "settings.general.item",
++				id: "cost-estimate",
++				order: 30,
++				locale: NS,
++				inject: () => ({
++					setEnabled: (enabled) => {
++						costEstimateSettings.setEnabled(enabled);
++					},
++					setPrice: (model, key, value) => {
++						costEstimateSettings.setPrice(model, key, value);
++					}
++				})
++			}, CostEstimateRow));
++			currencySettings = new BillingCurrencySettings(ctx.settingsScope.bind({ namespace: CONVERSATION_SETTINGS_NAMESPACE }));
++			currencySettings.store.subscribe(() => {
++				syncCurrencyRuntime();
++			});
++			syncCurrencyRuntime();
++			refreshExchangeRates();
++			ctx.slots.inject("settings.general.item", () => ctx.slots.register({
++				name: "settings.general.item",
++				id: "billing-currency",
++				order: 35,
++				locale: NS,
++				inject: () => ({
++					setCode: (code) => {
++						currencySettings?.setCode(code);
++					},
++					setManualRate: (rate) => {
++						currencySettings?.setManualRate(rate ?? null);
++					}
++				})
++			}, CurrencyRow));
++			ctx.slots.inject("settings.general.item", () => ctx.slots.register({
++				name: "settings.general.item",
++				id: "notify",
++				order: 40,
++				locale: NS
++			}, NotifyRow));
++			ctx.slots.inject("conversation.view", () => ctx.slots.register({
++				name: "conversation.view",
++				id: "billing",
++				order: 20,
++				locale: NS,
++				label: () => t("view.billing"),
++				inject: (sessionId) => ({
++					api: connection.api,
++					t,
++					sessionId
++				})
++			}, SessionBillView));
++			ctx.slots.inject("settings.section", () => ctx.slots.register({
++				name: "settings.section",
++				id: "billing",
++				order: 31,
++				locale: NS,
++				label: () => t("billing.nav"),
++				inject: () => ({
++					api: connection.api,
++					t
++				})
++			}, SettingsBillingSection));
+ 			const chatScrollPositions = /* @__PURE__ */ new Map();
+ 			const viewTabs = () => {
+ 				const tabs = [];
+@@ -9636,6 +12697,8 @@
+ 				},
+ 				inject: (sessionId) => {
+ 					if (sessionId === void 0) return {
++						// [billing-backend] api 供 CostMeter 轮询后端费用明细。
++						api: connection.api,
+ 						keyboard: void 0,
+ 						addImages: void 0,
+ 						removeImage: void 0,
+@@ -9654,6 +12717,8 @@
+ 					const shell = inputHub.shell(sessionId);
+ 					const inputTriggers = inputHub.inputTriggers(sessionId);
+ 					return {
++						// [billing-backend] api 供 CostMeter 轮询后端费用明细。
++						api: connection.api,
+ 						keyboard: shell,
+ 						addImages: (files) => {
+ 							try {
+@@ -9763,7 +12828,9 @@
+ 				name: "conversation.composer.dock",
+ 				id: "stats",
+ 				order: 0,
+-				locale: NS
++				locale: NS,
++				// [billing-backend] 统计栏费用由后端 session.cost 计算,注入 api 与 sessionId。
++				inject: (sessionId) => ({ api: connection.api, sessionId })
+ 			}, StatsLine);
+ 			ctx.plugin(ConversationController, {
+ 				input: inputHub,

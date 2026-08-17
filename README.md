@@ -45,6 +45,27 @@ dsh-plugins/
 3. **本地自动拦截**：已启用 pre-commit 钩子（`git config core.hooksPath hooks`），每次 `git commit` 自动扫描暂存区，命中即中止提交；
 4. **若怀疑密钥已泄露**：立即到 https://gitee.com/profile/personal_access_tokens 吊销对应令牌，再处理仓库历史。
 
+## 一键安装
+
+把本仓库的一套定制装到任意机器（前提：Node.js >= 20 + 联网）:
+
+```bash
+git clone git@gitee.com:CGWP/dsh-plugins.git
+cd dsh-plugins
+bash scripts/install.sh
+```
+
+脚本会自动完成:
+
+1. 安装 `@deepseek-ai/dsh@0.1.0-rc.6`
+2. 把 `patches/ui-conversation.patch` 应用到 ui-conversation（费用预估 / 账单 / 货币 / 通知 / 余额）
+3. 把 `dsh-mods-enhanced` 插件装进 web profile（图片转文字 / 完成提醒 / token 投影）
+4. 配置 `package.json` + `cordis.patch.yml`
+
+装完重启 `dsh web --port 3080` 即可。图片转文字需配置 `ZHIPU_API_KEY`，余额查询需 `DEEPSEEK_API_KEY`。
+
+> 注意:ui-conversation 补丁**锁定 dsh 0.1.0-rc.6**。dsh 升级后 client.js 会变,补丁可能失效,需重新生成。
+
 ## 如何使用
 
 1. 在 DSH 会话中通过 `cordis_define` 创建或更新插件

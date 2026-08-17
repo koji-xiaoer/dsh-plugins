@@ -1,7 +1,7 @@
 {
   "name": "dsh-mods-enhanced",
   "version": "1.0.0",
-  "description": "DSH 增强功能静态化常驻包:余额查询/会话完成提醒/费用预估与账单明细/粘贴图片转文字/Token 用量统计(由 5 个动态插件合并)",
+  "description": "DSH 增强功能静态化常驻包:粘贴图片转文字 / 会话完成提醒 / Token 用量投影(纯服务端)",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -11,12 +11,7 @@
   },
   "dsh": {
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-api-remotes",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation"
-      ],
+      "inject": [],
       "platform": "web"
     }
   },
