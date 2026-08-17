@@ -63,3 +63,20 @@ DSH_PATCH_DIR=<本仓库>/增强主页类/dsh-mods/features/余额查询 bash ds
 - 安装包根：`/home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/`
 - 补丁目标均为 `node_modules/@deepseek-ai/*/lib/client.js` 或 `lib/index.js` 等编译产物
 - 设置持久化：`~/.dsh/settings.yaml` 的 `ui-conversation` 命名空间
+
+---
+
+## 迁移状态(2026-08-18)
+
+以下功能已迁移为动态 Cordis 插件(`插件类/`),补丁保留作历史归档与回退:
+
+| 功能 | 插件 | 状态 | 退役补丁 |
+|---|---|---|---|
+| 余额查询 | `插件类/baln-4/` | ✅ 运行中 | 余额查询 3 补丁 |
+| 会话完成提醒 | `插件类/sntf-5/` | ✅ 运行中 | dsh-client-runtime-notify.patch |
+| 粘贴图片转文字 | `插件类/imgr-3/` | ✅ 运行中(agent/pre-step 拦截) | dsh-host-apiproxy.patch、dsh-llm-deepseek.patch |
+| Token 用量统计 | `插件类/tokm-1/` | ✅ 运行中(投影注册) | dsh-token-meter.patch |
+| 费用预估与账单明细 | `插件类/cost-6/` | 🔄 v1 运行中(费用行/总账单),v2 待补 | dsh-client-ui-conversation.patch(部分) |
+| 账单接口优化(usageOnly) | — | ❌ 不可迁移(宿主内部查询优化);费用 UI 改走 Host 折叠 RPC 后动机消失 | dsh-session-schema.patch |
+
+迁移细节与可行性矩阵见 `docs/迁移为插件-梳理与计划.md`。
