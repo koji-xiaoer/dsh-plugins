@@ -5,6 +5,17 @@
 - **pluginId**: `cost-6`(idPrefix `cost`),迁移时间 2026-08-18
 - **原实现**: 安装包内 `dsh-client-ui-conversation/lib/client.js` 的 CostEstimateRow / CostMeter / BillingView / SessionBillView / CostTurnChart / FoldReplyPreview 等 11 个组件
 
+## 效果预览
+
+> 截图均为演示数据(金额/会话标题已替换),不包含真实信息。
+
+| 场景 | 截图 |
+|---|---|
+| 会话统计栏费用行 | ![费用行](../../docs/screenshots/1-cost-line.png) |
+| 总账单页(设置面板) | ![总账单](../../docs/screenshots/2-billing.png) |
+| 费用预估设置卡 | ![价格卡](../../docs/screenshots/3-cost-settings.png) |
+| 账单货币卡 | ![货币卡](../../docs/screenshots/4-currency.png) |
+
 ## 架构
 
 - **Host 折叠引擎**(替代 usageOnly 补丁的传输路径): `sessionQuery.listSessions/listEvents` 在宿主内折叠,只传聚合 JSON

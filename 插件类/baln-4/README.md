@@ -5,6 +5,14 @@
 - **pluginId**: `baln-4`(idPrefix `baln`),迁移时间 2026-08-18
 - **原实现**: 安装包内 `dsh-host-apiproxy` 的 `host.balance` RPC + schema 三处注册
 
+## 效果预览
+
+> 余额为真实账户数据,**截图已打码**;点击徽标可查看赠送/充值明细。
+
+| 场景 | 截图 |
+|---|---|
+| 总账单页顶部余额徽标 | ![余额徽标](../../docs/screenshots/7-balance.png) |
+
 ## 功能
 
 - Host: `harness.handle('balance')` → `credentials.resolve('DEEPSEEK_API_KEY')`(无 process 全局,省略 env 回退)→ GET `https://api.deepseek.com/user/balance`(Bearer)→ 映射 `{isAvailable, currency, totalBalance, grantedBalance, toppedUpBalance}`,错误码对齐原实现(credential-missing / provider-error)

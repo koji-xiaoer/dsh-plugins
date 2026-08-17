@@ -77,6 +77,20 @@ bash scripts/install.sh
 
 > 注意:ui-conversation 补丁**锁定 dsh 0.1.0-rc.6**。dsh 升级后 client.js 会变,补丁可能失效,需重新生成。
 
+## 效果预览
+
+> 截图取自本机实际运行画面,金额/会话标题等均已替换为**演示数据**或打码,不包含真实敏感信息。
+
+| 功能 | 截图 | 说明 |
+|---|---|---|
+| 会话统计栏 | ![费用行](docs/screenshots/1-cost-line.png) | 轮次/时长/Token 用量/预估费用(对应 cost-6 费用行 + tokm-1 用量行) |
+| 总账单 | ![总账单](docs/screenshots/2-billing.png) | 全会话费用表(费用预估与账单明细,cost-6) |
+| 费用预估设置卡 | ![费用预估卡](docs/screenshots/3-cost-settings.png) | 自定义每模型价格 + 峰谷价说明(cost-6) |
+| 账单货币卡 | ![货币卡](docs/screenshots/4-currency.png) | 15 币种切换/汇率(cost-6) |
+| 会话完成提醒 | ![提醒设置卡](docs/screenshots/5-notify.png) | 音色/音量/增益/试听/自定义音频(sntf-5) |
+| 粘贴图片转文字 | ![图片转文字](docs/screenshots/6-imgr.png) | 图片经 GLM 识别替换为文字描述(imgr-3) |
+| 账户余额 | ![余额](docs/screenshots/7-balance.png) | 总账单页顶部余额徽标(金额打码,baln-4) |
+
 ## 如何使用
 
 1. 在 DSH 会话中通过 `cordis_define` 创建或更新插件

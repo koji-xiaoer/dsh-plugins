@@ -3,6 +3,20 @@
 将 baln-4 / sntf-5 / tokm-1 / imgr-3 / cost-6 五个动态插件**合并**为一个
 **profile 静态插件**,随 dsh web 服务启动自动加载,不再需要 cordis_define/cordis_run。
 
+## 效果预览
+
+> 截图均为演示数据(金额/会话标题已替换或打码),不包含真实信息。
+
+| 功能 | 截图 |
+|---|---|
+| 会话统计栏(费用 + Token 用量) | ![统计栏](../../docs/screenshots/1-cost-line.png) |
+| 总账单页 | ![总账单](../../docs/screenshots/2-billing.png) |
+| 费用预估设置卡 | ![价格卡](../../docs/screenshots/3-cost-settings.png) |
+| 账单货币卡 | ![货币卡](../../docs/screenshots/4-currency.png) |
+| 会话完成提醒设置卡 | ![提醒卡](../../docs/screenshots/5-notify.png) |
+| 粘贴图片转文字 | ![图片转文字](../../docs/screenshots/6-imgr.png) |
+| 账户余额(打码) | ![余额](../../docs/screenshots/7-balance.png) |
+
 ## 常驻原理
 
 - 包位于 `~/.dsh/profiles/web/plugins/dsh-mods-enhanced/`

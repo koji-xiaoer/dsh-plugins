@@ -5,6 +5,14 @@
 - **pluginId**: `sntf-5`(idPrefix `sntf`),迁移时间 2026-08-18
 - **原实现**: 安装包内 `dsh-client-runtime` 的 DshNotify 类 + 设置卡 NotifyRow
 
+## 效果预览
+
+> 截图取自设置面板「会话完成提醒」卡,无敏感信息。
+
+| 场景 | 截图 |
+|---|---|
+| 设置卡(音色/音量/增益/试听/自定义音频) | ![提醒设置卡](../../docs/screenshots/5-notify.png) |
+
 ## 功能
 
 - **Host**: 监听 `agent/status`,维护每会话 running 状态与完成序号(completedSeq,running→idle 递增);RPC `notify-state`

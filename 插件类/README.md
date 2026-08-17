@@ -36,3 +36,17 @@
 
 > 注：`dsh-mods-enhanced` 是静态化常驻包（`~/.dsh/profiles/web/plugins/`），不是动态插件；
 > 它合并了 baln-4/sntf-5/tokm-1/imgr-3/cost-6 五个动态插件的全部能力，随服务启动自动生效。
+
+## 效果预览
+
+各插件的界面效果见 `docs/screenshots/`（均为演示数据，金额/会话标题已替换或打码）：
+
+| 插件 | 截图 |
+|---|---|
+| cost-6 费用行 / tokm-1 用量行 | ![统计栏](../docs/screenshots/1-cost-line.png) |
+| cost-6 总账单页 | ![总账单](../docs/screenshots/2-billing.png) |
+| cost-6 价格卡 | ![价格卡](../docs/screenshots/3-cost-settings.png) |
+| cost-6 货币卡 | ![货币卡](../docs/screenshots/4-currency.png) |
+| sntf-5 设置卡 | ![提醒卡](../docs/screenshots/5-notify.png) |
+| imgr-3 图片转文字 | ![图片转文字](../docs/screenshots/6-imgr.png) |
+| baln-4 余额徽标 | ![余额](../docs/screenshots/7-balance.png) |

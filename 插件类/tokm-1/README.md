@@ -6,6 +6,14 @@
 - **迁移时间**: 2026-08-18
 - **原实现**: `增强主页类/dsh-mods/features/Token用量统计/dsh-token-meter.patch`(安装包内 `dsh-token-meter/lib/index.js` 直接修改)
 
+## 效果预览
+
+> Token 用量随会话统计栏展示(截图数字为演示值)。
+
+| 场景 | 截图 |
+|---|---|
+| 统计栏用量行(输入/输出/缓存) | ![用量行](../../docs/screenshots/1-cost-line.png) |
+
 ## 功能
 
 注册 `tokenUsageByModel` 会话投影单元(键名与宿主 token-meter 相同,stateVersion 1 共享单元):
