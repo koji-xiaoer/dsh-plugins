@@ -15,3 +15,15 @@
 | packageId | 说明 | 状态 |
 |---|---|---|
 | pkg-5 | balance RPC + header 余额徽标 | 运行中 |
+
+## 依赖
+
+| 类型 | 依赖 | 缺失影响 |
+|---|---|---|
+| 宿主服务 | `credentials`(ctx.get 可选) | credential-missing,UI 隐藏 |
+| 密钥 | `DEEPSEEK_API_KEY`(~/.dsh/.env) | 同上 |
+| 平台 | Host 全局 `fetch`(process 不可用) | 余额不可查 |
+| 平台 | Client slots(header.utilities)+ timer | 徽标不显示 |
+| 补丁 | 余额查询 3 补丁(host.balance 通道) | 插件独立,双通道并存 |
+
+完整依赖关系与规则见 `docs/插件依赖关系.md`。

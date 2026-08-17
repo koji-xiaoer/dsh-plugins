@@ -18,3 +18,14 @@
 | packageId | 说明 | 状态 |
 |---|---|---|
 | pkg-6 | 完整 DshNotify 行为 + NotifyRow 设置卡 | 运行中 |
+
+## 依赖
+
+| 类型 | 依赖 | 缺失影响 |
+|---|---|---|
+| 宿主事件 | `agent/status`(emit) | 无提醒 |
+| 平台 | Host harness RPC + Client slots/timer | 界面不显示 |
+| 浏览器全局 | `localStorage`/`Audio`/`document`/`FileReader`(均有守卫) | 相应功能降级 |
+| 补丁 | dsh-client-runtime-notify = 替代;NotifyRow 同 cell(id=notify)替换;`dsh.notify.*` 键数据兼容 | 共存兼容 |
+
+完整依赖关系与规则见 `docs/插件依赖关系.md`。

@@ -29,3 +29,14 @@ cordis_define(kind=new, idPrefix=tokm, ...) → cordis_run(pluginId=tokm-1, pack
 | packageId | 说明 | 状态 |
 |---|---|---|
 | pkg-1 | 投影注册 + usage-by-model RPC + composer.dock 用量行 | 运行中 |
+
+## 依赖
+
+| 类型 | 依赖 | 缺失影响 |
+|---|---|---|
+| 宿主服务 | `sessionProjections`(ctx.get 可选) | 投影不注册 |
+| 宿主服务 | `sessions`(ctx.get 可选) | 用量行无数据 |
+| 平台 | Host harness RPC / Client slots+timer | 界面不显示 |
+| 补丁 | dsh-token-meter.patch 同 key 共享单元(stateVersion 1,计数叠加) | 共存兼容 |
+
+完整依赖关系与规则见 `docs/插件依赖关系.md`。

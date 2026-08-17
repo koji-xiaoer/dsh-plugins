@@ -20,3 +20,15 @@
 | packageId | 说明 | 状态 |
 |---|---|---|
 | pkg-4 | agent/pre-step 拦截 + GLM 转文字 + 内容寻址缓存 | 运行中 |
+
+## 依赖
+
+| 类型 | 依赖 | 缺失影响 |
+|---|---|---|
+| 宿主事件 | `agent/pre-step`(waterfall) | 插件不生效 |
+| 宿主服务 | `attachments`(ctx.get 可选) | 降级占位文案 |
+| 宿主服务 | `credentials`(ctx.get 可选)+ `ZHIPU_API_KEY` | 降级「未配置」文案 |
+| 平台 | Host 全局 `fetch`/`setTimeout`(无 AbortSignal) | 降级占位文案 |
+| 补丁 | dsh-host-apiproxy `[image-relay-patch]` = 替代;dsh-llm-deepseek 放行 = 冗余可退役 | 共存兼容 |
+
+完整依赖关系与规则见 `docs/插件依赖关系.md`。
