@@ -21,7 +21,7 @@ return {
         return (d.getMonth() + 1) + '-' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
       } catch { return '' }
     }
-    styles.insert('.cost-dock{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:10px;font-size:12px;color:#aab4c0}.cost-dock-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cost-dock-total{font-weight:600;color:#dde3ea;font-variant-numeric:tabular-nums}.cost-dock-model{padding:1px 8px;border-radius:999px;background:rgba(120,140,170,.14);color:#9fb4d0}.cost-dock-toggle{cursor:pointer;opacity:.7}.cost-dock-toggle:hover{opacity:1}.cost-bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:4px 2px 0;overflow-x:auto}.cost-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:26px;height:100%}.cost-bar-fill{width:18px;border-radius:4px 4px 0 0;background:#4a7dff;min-height:3px}.cost-bar-val{font-size:9px;color:#8fa0b8;line-height:1.4}.cost-bar-idx{font-size:9px;color:#6b7a90}.cost-pager{display:flex;align-items:center;gap:8px;font-size:11px}.cost-pager button{background:none;border:1px solid rgba(127,140,170,.35);color:inherit;border-radius:6px;padding:1px 8px;cursor:pointer;font-size:11px}.cost-pager button:disabled{opacity:.35;cursor:default}.cost-table{width:100%;border-collapse:collapse;font-size:12px}.cost-table th,.cost-table td{padding:4px 8px;text-align:left;border-bottom:1px solid rgba(127,140,170,.16);white-space:nowrap}.cost-table th{color:#8fa0b8;font-weight:500}.cost-table tr.clickable{cursor:pointer}.cost-table tr.clickable:hover{background:rgba(120,140,170,.1)}.cost-num{text-align:right;font-variant-numeric:tabular-nums}.cost-empty{color:#8fa0b8;padding:12px;text-align:center}')
+    styles.insert('.cost-dock{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:10px;font-size:12px;color:#aab4c0}.cost-dock-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cost-dock-total{font-weight:600;color:#dde3ea;font-variant-numeric:tabular-nums}.cost-dock-model{padding:1px 8px;border-radius:999px;background:rgba(120,140,170,.14);color:#9fb4d0}.cost-dock-toggle{cursor:pointer;opacity:.7}.cost-dock-toggle:hover{opacity:1}.cost-bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:4px 2px 0;overflow-x:auto}.cost-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:26px;height:100%}.cost-bar-fill{width:18px;border-radius:4px 4px 0 0;background:#4a7dff;min-height:3px}.cost-bar-val{font-size:9px;color:#8fa0b8;line-height:1.4}.cost-bar-idx{font-size:9px;color:#6b7a90}.cost-pager{display:flex;align-items:center;gap:8px;font-size:11px}.cost-pager button{background:none;border:1px solid rgba(127,140,170,.35);color:inherit;border-radius:6px;padding:1px 8px;cursor:pointer;font-size:11px}.cost-pager button:disabled{opacity:.35;cursor:default}.cost-table{width:100%;border-collapse:collapse;font-size:12px}.cost-table th,.cost-table td{padding:4px 8px;text-align:left;border-bottom:1px solid rgba(127,140,170,.16);white-space:nowrap}.cost-table th{color:#8fa0b8;font-weight:500}.cost-table tr.clickable{cursor:pointer}.cost-table tr.clickable:hover{background:rgba(120,140,170,.1)}.cost-num{text-align:right;font-variant-numeric:tabular-nums}.cost-empty{color:#8fa0b8;padding:12px;text-align:center}.cost-settings{display:flex;flex-direction:column;gap:10px}.cost-settings-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.cost-settings-label{font-size:12px;color:#aab4c0}.cost-price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.cost-price-cell{display:flex;flex-direction:column;gap:2px}.cost-price-cell span{font-size:10px;color:#8fa0b8}.cost-price-cell input{width:100%;box-sizing:border-box;background:rgba(127,140,170,.1);border:1px solid rgba(127,140,170,.3);border-radius:6px;color:#dde3ea;font-size:12px;padding:3px 6px}')
 
     const ModelChip = (props) => {
       const m = props.model
@@ -155,6 +155,48 @@ return {
           ]))),
         React.createElement('div', { className: 'cost-empty', style: { marginTop: 10, fontSize: 11 } }, '费用按请求时刻计价(峰谷价表),每 5 秒刷新'))
     }
+    const CostSettings = (props) => {
+      const [cfg, setCfg] = React.useState(null)
+      const [draft, setDraft] = React.useState({})
+      React.useEffect(() => {
+        let alive = true
+        const load = async () => {
+          try {
+            const r = await host.call('cost-config', {})
+            if (alive && r !== null && typeof r === 'object' && r.ok === true) { setCfg(r); setDraft(r.prices || {}) }
+          } catch {}
+        }
+        load()
+        return () => { alive = false }
+      }, [])
+      if (cfg === null) return React.createElement('div', { className: 'cost-empty' }, '加载中…')
+      const modelNames = Object.keys(cfg.builtin || {})
+      const setPrice = (model, key, value) => {
+        const next = Object.assign({}, draft, { [model]: Object.assign({}, draft[model] || {}, { [key]: value }) })
+        setDraft(next)
+        host.call('cost-config', { action: 'set', prices: next }).catch(() => {})
+      }
+      const resetAll = () => { setDraft({}); host.call('cost-config', { action: 'set', prices: {} }).catch(() => {}) }
+      return React.createElement('div', { className: 'cost-settings' },
+        React.createElement('div', { className: 'cost-settings-row' },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontWeight: 500, fontSize: 13, color: '#dde3ea' } }, '费用预估'),
+            React.createElement('div', { className: 'cost-settings-label' }, '自定义 ¥/百万 token 价格,留空用内置峰谷价')),
+          React.createElement('button', { className: 'cost-pager', onClick: resetAll, style: { padding: '3px 10px' } }, '恢复内置价')),
+        modelNames.map((model) => React.createElement('div', { key: model },
+          React.createElement('div', { className: 'cost-settings-label', style: { marginBottom: 4 } }, model),
+          React.createElement('div', { className: 'cost-price-grid' },
+            ['cacheRead', 'cacheMiss', 'output'].map((key) => {
+              const v = draft[model] ? draft[model][key] : ''
+              return React.createElement('div', { key: key, className: 'cost-price-cell' },
+                React.createElement('span', null, key === 'cacheRead' ? '缓存读' : (key === 'cacheMiss' ? '未命中输入' : '输出')),
+                React.createElement('input', {
+                  type: 'number', min: 0, step: 0.01, placeholder: '内置', value: v === undefined ? '' : String(v),
+                  onChange: (e) => setPrice(model, key, e.target.value === '' ? undefined : Number(e.target.value))
+                }))
+            })))),
+        React.createElement('div', { className: 'cost-settings-label' }, '说明: 峰时 09-12/14-18(北京),按请求时刻计价;内置价见 deepseek-v4-flash/pro'))
+    }
     const slots = ctx.get('slots')
     if (slots === undefined) return
     slots.inject('conversation.composer.dock', () => slots.register(
@@ -164,6 +206,10 @@ return {
     slots.inject('settings.section', () => slots.register(
       { name: 'settings.section', id: 'billing-v2', order: 31, label: '总账单' },
       () => React.createElement(BillingPage, null)
+    ))
+    slots.inject('settings.general.item', () => slots.register(
+      { name: 'settings.general.item', id: 'cost-estimate', order: 30 },
+      () => React.createElement(CostSettings, null)
     ))
   }
 }

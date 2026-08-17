@@ -13,16 +13,21 @@ return {
       if ((h >= 9 && h < 12) || (h >= 14 && h < 18)) return 'peak'
       return 'offpeak'
     }
-    const priceSetFor = (model, now) => {
+    const priceSetFor = (model, now, custom) => {
       const builtin = ESTIMATED_PRICES[model] ?? ESTIMATED_PRICES[FALLBACK_MODEL]
-      return builtin[pricingPeriod(now)] ?? builtin.current
+      const base = builtin[pricingPeriod(now)] ?? builtin.current
+      const c = (custom !== undefined && custom !== null && typeof custom === 'object') ? custom[model] : undefined
+      if (c === undefined || c === null || typeof c !== 'object') return base
+      const out = {}
+      for (const key of ['cacheRead', 'cacheMiss', 'output']) out[key] = (typeof c[key] === 'number' && Number.isFinite(c[key])) ? c[key] : base[key]
+      return out
     }
-    const costOfBuckets = (b, model, at) => {
-      const p = priceSetFor(model, at)
+    const costOfBuckets = (b, model, at, custom) => {
+      const p = priceSetFor(model, at, custom)
       return ((b.input + b.write) * p.cacheMiss + b.read * p.cacheRead + b.output * p.output) / 1e6
     }
     const eventOf = (rec) => (rec !== null && typeof rec === 'object' && rec.event !== undefined && typeof rec.event === 'object') ? rec.event : rec
-    const foldEvents = (records) => {
+    const foldEvents = (records, custom) => {
       let cost = 0, input = 0, read = 0, write = 0, output = 0
       const byModel = {}
       const byDay = {}
@@ -35,7 +40,7 @@ return {
         const model = (typeof event.data.message?.source?.model === 'string' && event.data.message.source.model !== '') ? event.data.message.source.model : FALLBACK_MODEL
         const at = typeof event.time === 'number' && event.time > 0 ? event.time : Date.now()
         const b = { input: usage.inputTokens ?? 0, read: usage.cacheReadTokens ?? 0, write: usage.cacheWriteTokens ?? 0, output: usage.outputTokens ?? 0 }
-        const c = costOfBuckets(b, model, at)
+        const c = costOfBuckets(b, model, at, custom)
         cost += c; input += b.input; read += b.read; write += b.write; output += b.output
         const m = byModel[model] ?? (byModel[model] = { cost: 0, input: 0, read: 0, write: 0, output: 0 })
         m.cost += c; m.input += b.input; m.read += b.read; m.write += b.write; m.output += b.output
@@ -62,10 +67,18 @@ return {
     const foldCache = new Map()
     const sidOf = (s) => (typeof s.sessionId === 'string' ? s.sessionId : s.id)
     const updatedOf = (s) => (typeof s.updatedAt === 'number' ? s.updatedAt : String(s.updatedAt ?? ''))
+    let customPrices = {}
     const foldSession = async (id) => {
       const records = await query.listEvents(id)
-      return foldEvents(records)
+      return foldEvents(records, customPrices)
     }
+    harness.handle('cost-config', (args) => {
+      if (args !== null && typeof args === 'object' && args.action === 'set' && args.prices !== undefined && args.prices !== null && typeof args.prices === 'object') {
+        customPrices = args.prices
+        foldCache.clear()
+      }
+      return { ok: true, builtin: ESTIMATED_PRICES, prices: customPrices }
+    })
     harness.handle('cost-all', async () => {
       try {
         const sessions = await query.listSessions()
