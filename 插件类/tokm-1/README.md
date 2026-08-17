@@ -28,7 +28,8 @@ cordis_define(kind=new, idPrefix=tokm, ...) → cordis_run(pluginId=tokm-1, pack
 
 | packageId | 说明 | 状态 |
 |---|---|---|
-| pkg-1 | 投影注册 + usage-by-model RPC + composer.dock 用量行 | 运行中 |
+| pkg-1 | 投影注册 + usage-by-model RPC + composer.dock 用量行 | 已废弃(无样式) |
+| pkg-14 | **v2 合包**:补全用量行样式(dsw-alias 令牌) | ✅ 运行中 |
 
 ## 依赖
 

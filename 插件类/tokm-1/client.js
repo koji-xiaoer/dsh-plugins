@@ -1,6 +1,7 @@
 return {
   inject: ['timer'],
   apply(ctx) {
+    styles.insert('.tokm-row{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-tertiary);padding:0 4px;align-items:center}.tokm-cell{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}')
     const slots = ctx.get('slots')
     if (slots === undefined) return
     slots.inject('conversation.composer.dock', () => slots.register(
