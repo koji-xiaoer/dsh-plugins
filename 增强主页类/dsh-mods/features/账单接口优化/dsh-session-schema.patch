@@ -1,5 +1,5 @@
---- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js.orig-usageonly	2026-08-14 23:03:23.148104373 +0800
-+++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js	2026-08-17 02:37:22.536360175 +0800
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js
 @@ -100,6 +100,50 @@
      sessionId: sessionIdSchema,
      beforeSeq: z.number().int().nonnegative().optional(),

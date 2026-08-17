@@ -1,5 +1,5 @@
---- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js.orig-balance	2026-08-14 20:27:08.284776238 +0800
-+++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js	2026-08-17 02:39:56.687259897 +0800
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js
 @@ -7,8 +7,8 @@
  import { RpcId } from "../api/rpc.js";
  import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from "../api/rpc.schema.js";

@@ -1,5 +1,5 @@
---- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js.orig-balance	2026-08-14 20:27:08.283924911 +0800
-+++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js	2026-08-17 02:39:34.257096492 +0800
+--- node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
++++ node_modules/@deepseek-ai/dsh-client-connection/lib/client.js
 @@ -5293,7 +5293,8 @@
  		object({
  			sessionId: sessionIdSchema,
@@ -10,7 +10,7 @@
  		});
  		/** Complete provider/model selection. */
  		const modelSelectionSchema = object({
-@@ -5373,6 +5374,39 @@
+@@ -5373,6 +5374,114 @@
  			hasMore: boolean(),
  			projections: sessionProjectionsBlockSchema.optional()
  		});
@@ -36,21 +36,96 @@
 +				read: number(),
 +				write: number(),
 +				output: number()
-+			}))
++			})),
++			derivedFrom: sessionIdSchema.optional(),
++			dedupSkipped: number().int().nonnegative().optional(),
++			subCost: number().nonnegative().optional()
 +		});
-+		/** [billing-fix] session.cost 响应:内置价表 + 会话聚合项列表。 */
++		/** [billing-backend] session.cost 聚合项(按模型/按日,服务端汇总)。 */
++		const sessionCostAggregateSchema = object({
++			cost: number(),
++			input: number(),
++			read: number(),
++			write: number(),
++			output: number()
++		});
++		/** [billing-backend] session.cost 全局汇总与按模型/按日聚合。 */
++		const sessionCostTotalsSchema = object({
++			cost: number(),
++			input: number(),
++			read: number(),
++			write: number(),
++			output: number(),
++			withUsage: number()
++		});
++		/** [billing-fix] session.cost 响应:内置价表 + 后端汇总 + 会话聚合项列表。 */
 +		const sessionCostValueSchema = object({
 +			prices: record(string(), record(string(), object({
 +				cacheRead: number(),
 +				cacheMiss: number(),
 +				output: number()
 +			}))),
++			totals: sessionCostTotalsSchema,
++			byModel: record(string(), object({
++				cost: number(),
++				sessions: number(),
++				input: number(),
++				read: number(),
++				write: number(),
++				output: number()
++			})),
++			byDay: record(string(), sessionCostAggregateSchema),
 +			items: array(sessionCostItemSchema)
++		});
++		/** [billing-backend] session.costDetail 逐笔行。 */
++		const sessionCostCallSchema = object({
++			time: number(),
++			turn: number(),
++			step: number(),
++			model: string(),
++			input: number(),
++			read: number(),
++			write: number(),
++			output: number(),
++			cost: number()
++		});
++		/** [billing-backend] session.costDetail 响应:逐轮汇总 + 逐笔流水。 */
++		const sessionCostDetailValueSchema = object({
++			costBuckets: object({
++				uncached: number(),
++				cacheRead: number(),
++				output: number(),
++				total: number(),
++				tokens: number(),
++				tokensByBucket: object({
++					uncached: number(),
++					cacheRead: number(),
++					output: number()
++				}),
++				models: array(object({
++					model: string(),
++					cost: number(),
++					tokens: number()
++				}))
++			}),
++			turns: array(object({
++				turn: number(),
++				steps: number(),
++				input: number(),
++				read: number(),
++				write: number(),
++				output: number(),
++				cost: number(),
++				model: string()
++			})),
++			calls: array(sessionCostCallSchema),
++			derivedFrom: sessionIdSchema.optional(),
++			dedupSkipped: number().int().nonnegative().optional()
 +		});
  		object({ sessionId: sessionIdSchema });
  		/** session.models response value. */
  		const sessionModelsValueSchema = object({
-@@ -5714,6 +5748,14 @@
+@@ -5714,6 +5823,14 @@
  			attachedSessions: number().int().nonnegative(),
  			canOpenPath: boolean()
  		});
@@ -65,15 +140,16 @@
  		object({});
  		/** host.pickDirectory response value; null means the user cancelled. */
  		const hostPickDirectoryValueSchema = object({ path: string().nullable() });
-@@ -6074,6 +6116,7 @@
+@@ -6074,6 +6191,8 @@
  			"session.search": sessionSearchValueSchema,
  			"session.create": sessionCreateValueSchema,
  			"session.history": sessionHistoryValueSchema,
 +			"session.cost": sessionCostValueSchema,
++			"session.costDetail": sessionCostDetailValueSchema,
  			"session.models": sessionModelsValueSchema,
  			"session.selectModel": sessionSelectModelValueSchema,
  			"session.rename": sessionRenameValueSchema,
-@@ -6087,6 +6130,7 @@
+@@ -6087,6 +6206,7 @@
  			"subagent.prompt": object({ messageId: string() }),
  			"subagent.interrupt": subagentInterruptValueSchema,
  			"host.describe": hostDescribeValueSchema,
@@ -81,15 +157,16 @@
  			"host.pickDirectory": hostPickDirectoryValueSchema,
  			"host.listDirectory": hostListDirectoryValueSchema,
  			"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -6286,6 +6330,7 @@
+@@ -6286,6 +6406,8 @@
  				search: (payload, signal) => this.callUnary("session.search", payload, signal),
  				create: (payload, signal) => this.callUnary("session.create", payload, signal),
  				history: (payload, signal) => this.callUnary("session.history", payload, signal),
 +				cost: (payload, signal) => this.callUnary("session.cost", payload, signal),
++				costDetail: (payload, signal) => this.callUnary("session.costDetail", payload, signal),
  				models: (payload, signal) => this.callUnary("session.models", payload, signal),
  				selectModel: (payload, signal) => this.callUnary("session.selectModel", payload, signal),
  				rename: (payload, signal) => this.callUnary("session.rename", payload, signal),
-@@ -6303,6 +6348,7 @@
+@@ -6303,6 +6425,7 @@
  			};
  			host = {
  				describe: (payload, signal) => this.callUnary("host.describe", payload, signal),

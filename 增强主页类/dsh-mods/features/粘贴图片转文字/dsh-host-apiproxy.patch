@@ -1,6 +1,6 @@
---- /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.orig.js	2026-08-14 17:02:41.889804920 +0800
-+++ /home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js	2026-08-17 02:37:09.956312092 +0800
-@@ -484,7 +484,56 @@
+--- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
++++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
+@@ -484,7 +484,105 @@
  const sessionHistoryRequestSchema = z$1.object({
  	sessionId: sessionIdSchema,
  	beforeSeq: z$1.number().int().nonnegative().optional(),
@@ -55,10 +55,59 @@
 +		output: z$1.number()
 +	}))),
 +	items: z$1.array(sessionCostItemSchema)
++});
++/** [billing-backend] session.costDetail 请求:单会话逐轮/逐笔费用明细。 */
++const sessionCostDetailRequestSchema = z$1.object({
++	sessionId: sessionIdSchema
++});
++/** [billing-backend] session.costDetail 逐笔行(按请求时刻计价)。 */
++const sessionCostCallSchema = z$1.object({
++	time: z$1.number(),
++	turn: z$1.number(),
++	step: z$1.number(),
++	model: z$1.string(),
++	input: z$1.number().nonnegative(),
++	read: z$1.number().nonnegative(),
++	write: z$1.number().nonnegative(),
++	output: z$1.number().nonnegative(),
++	cost: z$1.number().nonnegative()
++});
++/** [billing-backend] session.costDetail 响应:逐轮汇总 + 逐笔流水。 */
++const sessionCostDetailValueSchema = z$1.object({
++	costBuckets: z$1.object({
++		uncached: z$1.number().nonnegative(),
++		cacheRead: z$1.number().nonnegative(),
++		output: z$1.number().nonnegative(),
++		total: z$1.number().nonnegative(),
++		tokens: z$1.number().nonnegative(),
++		tokensByBucket: z$1.object({
++			uncached: z$1.number().nonnegative(),
++			cacheRead: z$1.number().nonnegative(),
++			output: z$1.number().nonnegative()
++		}),
++		models: z$1.array(z$1.object({
++			model: z$1.string(),
++			cost: z$1.number().nonnegative(),
++			tokens: z$1.number().nonnegative()
++		}))
++	}),
++	turns: z$1.array(z$1.object({
++		turn: z$1.number(),
++		steps: z$1.number().nonnegative(),
++		input: z$1.number().nonnegative(),
++		read: z$1.number().nonnegative(),
++		write: z$1.number().nonnegative(),
++		output: z$1.number().nonnegative(),
++		cost: z$1.number().nonnegative(),
++		model: z$1.string()
++	})),
++	calls: z$1.array(sessionCostCallSchema),
++	derivedFrom: sessionIdSchema.optional(),
++	dedupSkipped: z$1.number().int().nonnegative().optional()
  });
  /** Complete provider/model selection. */
  const modelSelectionSchema = z$1.object({
-@@ -941,13 +990,90 @@
+@@ -941,13 +1039,90 @@
  			mediaType: item.part.mediaType,
  			...item.part.name === void 0 ? {} : { name: item.part.name }
  		});
@@ -153,7 +202,7 @@
  /** Search durable content for an image reference, including nested tool results. */
  function imageBlockIn(content, match) {
  	if (!Array.isArray(content)) return void 0;
-@@ -2040,6 +2166,128 @@
+@@ -2040,6 +2215,273 @@
  	* @returns the attached session, or the inspected detached header and events.
  	* @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
  	*/
@@ -223,9 +272,11 @@
 +	* 时段(与明细弹窗的 foldTurnCosts/foldCallLedger 同一口径)。
 +	* @param events - 会话事件流(attached 内存或 detached 日志)。
 +	* @param customPrices - 用户自定义价表覆盖(可无)。
++	* @param skipUsage - [billing-dedup] 跳过前 N 笔 usage(派生会话去重:与
++	* 父会话逐笔相同的继承部分不再计费,只计 fork 后的新增调用)。
 +	* @returns 聚合结果(byModel/byDay 为普通对象,可直接 JSON 序列化)。
 +	*/
-+	function foldCostEvents(events, customPrices) {
++	function foldCostEvents(events, customPrices, skipUsage = 0) {
 +		let cost = 0;
 +		let input = 0;
 +		let read = 0;
@@ -233,8 +284,13 @@
 +		let output = 0;
 +		const byModel = new Map();
 +		const byDay = new Map();
++		let skipped = 0;
 +		for (const event of events) {
 +			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
++			if (skipped < skipUsage) {
++				skipped += 1;
++				continue;
++			}
 +			const usage = event.data.usage;
 +			const model = typeof event.data.message?.source?.model === "string" && event.data.message.source.model !== "" ? event.data.message.source.model : ESTIMATED_FALLBACK_MODEL;
 +			const at = typeof event.time === "number" && event.time > 0 ? event.time : Date.now();
@@ -257,7 +313,15 @@
 +			m.write += buckets.write;
 +			m.output += buckets.output;
 +			byModel.set(model, m);
-+			const dayKey = new Date(event.time ?? at).toISOString().slice(0, 10);
++			// [billing-tz-fix] 按请求时刻的北京时间日分桶:平台账单按北京时间记账,
++			// UTC 日(toISOString)会把北京 00:00–08:00 的用量算进前一天,导致
++			// “今天”行少计(例如 08-17 显示 ¥2.6 而实际 ¥11.9)。
++			const dayKey = new Intl.DateTimeFormat("en-CA", {
++				year: "numeric",
++				month: "2-digit",
++				day: "2-digit",
++				timeZone: "Asia/Shanghai"
++			}).format(new Date(event.time ?? at));
 +			const d = byDay.get(dayKey) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
 +			d.cost += c;
 +			d.input += buckets.input;
@@ -276,13 +340,143 @@
 +			byDay: Object.fromEntries(byDay)
 +		};
 +	}
-+	/** session.cost 服务端缓存:sessionId → { at(updatedAt), pk(价表版本), fold }。 */
++	/**
++	* [billing-backend] 逐轮/逐笔费用明细折叠(等价原客户端 foldTurnCosts/
++	* foldCallLedger):按请求时刻计价,派生会话跳过与父相同的公共前缀。
++	* @param events - 会话事件流。
++	* @param customPrices - 自定义价表覆盖(可无)。
++	* @param skipUsage - 跳过前 N 笔 usage(派生去重)。
++	* @returns turns(按 turn 降序)与 calls(时间倒序,最新在前)。
++	*/
++	function foldCostDetail(events, customPrices, skipUsage = 0) {
++		const turns = new Map();
++		const calls = [];
++		const costBuckets = {
++			uncached: 0,
++			cacheRead: 0,
++			output: 0,
++			total: 0,
++			tokens: 0,
++			tokensByBucket: { uncached: 0, cacheRead: 0, output: 0 },
++			models: []
++		};
++		const modelMap = new Map();
++		let skipped = 0;
++		for (const event of events) {
++			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
++			if (skipped < skipUsage) {
++				skipped += 1;
++				continue;
++			}
++			const usage = event.data.usage;
++			const { turn, step } = event.data;
++			const model = typeof event.data.message?.source?.model === "string" && event.data.message.source.model !== "" ? event.data.message.source.model : ESTIMATED_FALLBACK_MODEL;
++			const at = typeof event.time === "number" && event.time > 0 ? event.time : Date.now();
++			const buckets = {
++				input: usage.inputTokens ?? 0,
++				read: usage.cacheReadTokens ?? 0,
++				write: usage.cacheWriteTokens ?? 0,
++				output: usage.outputTokens ?? 0
++			};
++			const cost = costOfBuckets(buckets, model, at, customPrices);
++			const price = priceSetFor(model, at, customPrices);
++			const tokens = buckets.input + buckets.read + buckets.write + buckets.output;
++			costBuckets.uncached += (buckets.input + buckets.write) * price.cacheMiss / 1e6;
++			costBuckets.cacheRead += buckets.read * price.cacheRead / 1e6;
++			costBuckets.output += buckets.output * price.output / 1e6;
++			costBuckets.total += cost;
++			costBuckets.tokens += tokens;
++			costBuckets.tokensByBucket.uncached += buckets.input + buckets.write;
++			costBuckets.tokensByBucket.cacheRead += buckets.read;
++			costBuckets.tokensByBucket.output += buckets.output;
++			let me = modelMap.get(model);
++			if (me === void 0) {
++				me = { model, cost: 0, tokens: 0 };
++				modelMap.set(model, me);
++			}
++			me.cost += cost;
++			me.tokens += tokens;
++			let line = turns.get(turn);
++			if (line === void 0) {
++				line = { turn, steps: 0, input: 0, read: 0, write: 0, output: 0, cost: 0, model };
++				turns.set(turn, line);
++			}
++			line.steps += 1;
++			line.input += buckets.input;
++			line.read += buckets.read;
++			line.write += buckets.write;
++			line.output += buckets.output;
++			line.cost += cost;
++			calls.push({
++				time: event.time ?? at,
++				turn,
++				step,
++				model,
++				input: buckets.input,
++				read: buckets.read,
++				write: buckets.write,
++				output: buckets.output,
++				cost
++			});
++		}
++		costBuckets.models = [...modelMap.values()].sort((a, b) => b.cost - a.cost);
++		return {
++			turns: [...turns.values()].sort((a, b) => b.turn - a.turn),
++			calls: calls.reverse(),
++			costBuckets
++		};
++	}
++	/**
++	* [billing-backend] 从会话设置读取用户自定义价表(设置面板「费用预估」写入
++	* ui-conversation 命名空间的 costEstimate.prices)。读不到返回 undefined。
++	*/
++	function costEstimatePricesFromSettings(ctx2) {
++		try {
++			const settings = ctx2.get("settings");
++			if (settings === void 0) return void 0;
++			const descriptor = settings.describe({ redactSecrets: true }).find((d) => d.ns === "ui-conversation");
++			const prices = descriptor?.value?.costEstimate?.prices;
++			if (prices === void 0 || typeof prices !== "object" || prices === null) return void 0;
++			return prices;
++		} catch (error) {
++			ctx2.logger?.warn?.(`session.cost: reading custom prices from settings failed: ${String(error)}`);
++			return void 0;
++		}
++	}
++		/** session.cost 服务端缓存:sessionId → { at(updatedAt), pk(价表版本), fold }。 */
 +	const costCache = /* @__PURE__ */ new Map();
++	// [billing-dedup] usage 序列缓存:sessionId → { seq(逐笔 [input,read,write,output]) }。
++	// 派生会话(fork)会完整继承父会话的事件日志,同一批 API 调用被两份账册各记一次;
++	// 折叠前按与父序列的公共前缀跳过继承部分,只计 fork 后的新增调用。
++	const usageSeqCache = /* @__PURE__ */ new Map();
++/** [billing-backend] session.costDetail 缓存:sessionId → { at(updatedAt), pk(价表), value }。 */
++	const detailCache = /* @__PURE__ */ new Map();
++	/** 会话 → 父会话(header.parentSession,跨请求持久;"" 表示无父)。供派生去重使用。 */
++	const parentOfCache = /* @__PURE__ */ new Map();
++	/**
++	* 提取会话事件流中的 usage 序列(与 foldCostEvents 同一消费口径:assistant/message 最终样本)。
++	* @returns 逐笔 [input, read, write, output] 数组。
++	*/
++	function usageSeqOf(events) {
++		const seq = [];
++		for (const event of events) {
++			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
++			const usage = event.data.usage;
++			seq.push([usage.inputTokens ?? 0, usage.cacheReadTokens ?? 0, usage.cacheWriteTokens ?? 0, usage.outputTokens ?? 0]);
++		}
++		return seq;
++	}
++	/** 两个 usage 序列的公共前缀长度(逐笔四元组比较)。 */
++	function commonUsagePrefixLen(a, b) {
++		let i = 0;
++		while (i < a.length && i < b.length && a[i][0] === b[i][0] && a[i][1] === b[i][1] && a[i][2] === b[i][2] && a[i][3] === b[i][3]) i += 1;
++		return i;
++	}
 +	//#endregion
  	async function historySourceFor(sessionId) {
  		const attached = ctx.sessions.get(sessionId);
  		if (attached !== void 0) return {
-@@ -2633,12 +2881,16 @@
+@@ -2633,12 +3075,16 @@
  				});
  			},
  			async history(request) {
@@ -301,7 +495,7 @@
  					return ok(request, {
  						events: page.events,
  						hasMore: page.hasMore,
-@@ -2657,6 +2909,46 @@
+@@ -2657,6 +3103,249 @@
  					});
  				}
  			},
@@ -310,33 +504,183 @@
 +			* 弹窗同一口径),总账单页面一行一次请求拿全量,不再由浏览器逐会话拉
 +			* 明细折叠。折叠结果按 (updatedAt, 价表) 缓存,会话无新增活动或价表
 +			* 未变时直接复用,5 秒轮询零成本。
++			* [billing-dedup] 派生会话去重:fork 会话继承父会话全部 usage 记录,
++			* 折叠时跳过与父会话 usage 序列逐笔相同的前缀,只计 fork 后的新增
++			* 调用(父会话被删除时父序列不可得,派生会话恢复全额计费,避免漏记)。
 +			*/
 +			async cost(request, signal) {
 +				const { sessionIds, prices } = request.payload;
-+				const customPrices = prices ?? {};
++				// [billing-backend] 默认自定义价从会话设置读取(前端设置面板写入);
++				// 请求参数 prices 优先于设置,两者都无则用内置价表。
++				const settingsPrices = costEstimatePricesFromSettings(ctx);
++				const customPrices = prices ?? settingsPrices ?? {};
 +				const priceKey = Object.keys(customPrices).length === 0 ? "" : JSON.stringify(customPrices);
 +				try {
 +					const summaries = await listVisibleSessionSummaries(signal);
 +					const targets = sessionIds === void 0 || sessionIds.length === 0 ? summaries : summaries.filter((s) => sessionIds.includes(s.sessionId));
 +					const items = [];
++					// [billing-backend] 子代理费用归集:折叠后计入父行 subCost,前端不再计算。
++					const subCostByParent = new Map();
++					// 第一遍:加载事件源并提取 usage 序列(供派生去重)。
++					const sources = new Map();
++					// 并行加载未缓存会话(分批控制内存峰值);缓存命中直接跳过,
++					// events 由第二遍 fallback 重新加载,保证折叠始终用最新事件流。
++					// 主会话与子代理都加载(子代理用于 subCost 归集);派生去重仅主会话参与。
++					const toLoad = targets.filter((s) => !usageSeqCache.has(s.sessionId));
++					for (let i = 0; i < toLoad.length; i += 5) {
++						signal?.throwIfAborted();
++						const chunk = toLoad.slice(i, i + 5);
++						const settled = await Promise.allSettled(chunk.map(async (s) => {
++							const source = await historySourceFor(s.sessionId);
++							const events = source.kind === "attached" ? source.session.events : source.events;
++							const header = source.kind === "attached" ? source.session.header : source.header;
++							return { id: s.sessionId, events, header };
++						}));
++						for (const r of settled) {
++							if (r.status === "rejected") {
++								ctx.logger.warn(`session.cost: load failed for one session: ${String(r.reason)}`);
++								continue;
++							}
++							const { id, events, header } = r.value;
++							sources.set(id, { events, header });
++							usageSeqCache.set(id, { seq: usageSeqOf(events) });
++							parentOfCache.set(id, typeof header?.parentSession === "string" ? header.parentSession : "");
++						}
++					}
++					// 父会话不在 targets 时(如按 sessionIds 过滤,或父已被删除):
++					// 每次都验证父存在性并刷新其序列——父删除后立即清除缓存中的父
++					// 序列,派生会话恢复全额计费,避免删除父会话后费用漏记。
 +					for (const s of targets) {
 +						if (s.origin === "subagent") continue;
++						const parentId = parentOfCache.get(s.sessionId) ?? sources.get(s.sessionId)?.header?.parentSession ?? "";
++						if (parentId === "") continue;
++						if (targets.some((t) => t.sessionId === parentId)) continue;
++						try {
++							const pSource = await historySourceFor(parentId);
++							const pEvents = pSource.kind === "attached" ? pSource.session.events : pSource.events;
++							usageSeqCache.set(parentId, { seq: usageSeqOf(pEvents) });
++						} catch (error) {
++							usageSeqCache.delete(parentId);
++							ctx.logger.info(`session.cost: parent "${parentId}" unavailable (deleted?), derived session "${s.sessionId}" billed in full`);
++						}
++					}
++					for (const s of targets) {
++						if (s.origin === "subagent") {
++							// [billing-backend] 子代理:折叠后归集到父行 subCost,不入 items。
++							const cached = costCache.get(s.sessionId);
++							if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey) {
++								const parentId = parentOfCache.get(s.sessionId);
++								if (typeof parentId === "string" && parentId !== "") {
++									const prev = subCostByParent.get(parentId) ?? { cost: 0, count: 0 };
++									prev.cost += cached.fold.cost;
++									prev.count += 1;
++									subCostByParent.set(parentId, prev);
++								}
++								continue;
++							}
++							try {
++								const src = sources.get(s.sessionId) ?? await (async () => {
++									const source = await historySourceFor(s.sessionId);
++									const events = source.kind === "attached" ? source.session.events : source.events;
++									return { events, header: source.kind === "attached" ? source.session.header : source.header };
++								})();
++								const fold = foldCostEvents(src.events, customPrices);
++								costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold });
++								const parentId = parentOfCache.get(s.sessionId) ?? src.header?.parentSession;
++								if (typeof parentId === "string" && parentId !== "") {
++									const prev = subCostByParent.get(parentId) ?? { cost: 0, count: 0 };
++									prev.cost += fold.cost;
++									prev.count += 1;
++									subCostByParent.set(parentId, prev);
++								}
++							} catch (error) {
++								ctx.logger.warn(`session.cost: subagent fold failed for "${s.sessionId}": ${String(error)}`);
++							}
++							continue;
++						}
 +						const cached = costCache.get(s.sessionId);
-+						if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey) {
++						// [billing-dedup] 派生会话的折叠依赖父会话存在性,不参与缓存命中
++						// (父被删除后必须立即恢复全额计费);非派生会话照常按 updatedAt 缓存。
++						if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey && cached.extra === void 0) {
 +							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...cached.fold });
 +							continue;
 +						}
 +						try {
-+							const source = await historySourceFor(s.sessionId);
-+							const events = source.kind === "attached" ? source.session.events : source.events;
-+							const fold = foldCostEvents(events, customPrices);
-+							costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold });
-+							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...fold });
++							const src = sources.get(s.sessionId) ?? await (async () => {
++								const source = await historySourceFor(s.sessionId);
++								const events = source.kind === "attached" ? source.session.events : source.events;
++								return { events, header: source.kind === "attached" ? source.session.header : source.header };
++							})();
++							const events = src.events;
++							const header = src.header;
++							const parentId = header?.parentSession;
++							let skip = 0;
++							let derivedFrom;
++							if (typeof parentId === "string" && parentId !== "") {
++								const ancestorSeq = usageSeqCache.get(parentId)?.seq;
++								if (ancestorSeq !== void 0) {
++									const ownSeq = usageSeqCache.get(s.sessionId)?.seq ?? usageSeqOf(events);
++									skip = commonUsagePrefixLen(ancestorSeq, ownSeq);
++									if (skip > 0) derivedFrom = parentId;
++								}
++							}
++							const fold = foldCostEvents(events, customPrices, skip);
++							// 非派生会话 extra 必须为 undefined(缓存命中分支以 extra === void 0 判定,
++							// 空对象会让缓存永不命中,每次请求都全量重算)。
++							const extra = derivedFrom === void 0 ? void 0 : { derivedFrom, dedupSkipped: skip };
++							costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold, extra });
++							items.push({
++								sessionId: s.sessionId,
++								updatedAt: s.updatedAt,
++								...extra,
++								...fold
++							});
 +						} catch (error) {
 +							ctx.logger.warn(`session.cost: fold failed for "${s.sessionId}": ${String(error)}`);
 +						}
 +					}
-+					return ok(request, { prices: ESTIMATED_PRICES, items });
++					// [billing-backend] 后端汇总:totals/byModel/byDay/subCost,前端只渲染。
++					const totals = { cost: 0, input: 0, read: 0, write: 0, output: 0, withUsage: 0 };
++					const byModel = new Map();
++					const byDay = new Map();
++					for (const item of items) {
++						totals.cost += item.cost;
++						totals.input += item.input;
++						totals.read += item.read;
++						totals.write += item.write;
++						totals.output += item.output;
++						if (item.cost > 0) totals.withUsage += 1;
++						for (const key of Object.keys(item.byModel ?? {})) {
++							const m = item.byModel[key];
++							const entry = byModel.get(key) ?? { cost: 0, sessions: 0, input: 0, read: 0, write: 0, output: 0 };
++							entry.cost += m.cost;
++							entry.sessions += 1;
++							entry.input += m.input;
++							entry.read += m.read;
++							entry.write += m.write;
++							entry.output += m.output;
++							byModel.set(key, entry);
++						}
++						for (const key of Object.keys(item.byDay ?? {})) {
++							const d = item.byDay[key];
++							const entry = byDay.get(key) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
++							entry.cost += d.cost;
++							entry.input += d.input;
++							entry.read += d.read;
++							entry.write += d.write;
++							entry.output += d.output;
++							byDay.set(key, entry);
++						}
++						const sub = subCostByParent.get(item.sessionId);
++						if (sub !== void 0) item.subCost = sub.cost;
++					}
++					return ok(request, {
++						prices: ESTIMATED_PRICES,
++						totals,
++						byModel: Object.fromEntries(byModel),
++						byDay: Object.fromEntries(byDay),
++						items
++					});
 +				} catch (error) {
 +					return err(request, {
 +						code: "internal",
@@ -345,10 +689,63 @@
 +					});
 +				}
 +			},
++			/**
++			* [billing-backend] 单会话费用明细:逐轮汇总 + 逐笔流水,全部后端折叠
++			* (按请求时刻计价、北京峰谷、设置自定义价、派生去重),前端只渲染。
++			* 明细折叠按 (updatedAt, 价表) 缓存。
++			*/
++			async costDetail(request, signal) {
++				const { sessionId } = request.payload;
++				const settingsPrices = costEstimatePricesFromSettings(ctx);
++				const customPrices = settingsPrices ?? {};
++				const priceKey = Object.keys(customPrices).length === 0 ? "" : JSON.stringify(customPrices);
++				try {
++					const summaries = await listVisibleSessionSummaries(signal);
++					const summary = summaries.find((s) => s.sessionId === sessionId);
++					const cached = detailCache.get(sessionId);
++					if (cached !== void 0 && cached.at === (summary?.updatedAt ?? 0) && cached.pk === priceKey) {
++						return ok(request, cached.value);
++					}
++					const source = await historySourceFor(sessionId);
++					const events = source.kind === "attached" ? source.session.events : source.events;
++					const header = source.kind === "attached" ? source.session.header : source.header;
++					const parentId = header?.parentSession;
++					let skip = 0;
++					let derivedFrom;
++					if (typeof parentId === "string" && parentId !== "") {
++						try {
++							const pSource = await historySourceFor(parentId);
++							const pEvents = pSource.kind === "attached" ? pSource.session.events : pSource.events;
++							skip = commonUsagePrefixLen(usageSeqOf(pEvents), usageSeqOf(events));
++							if (skip > 0) derivedFrom = parentId;
++						} catch (error) {
++							// 父会话已删除:全额计费。
++						}
++					}
++					const detail = foldCostDetail(events, customPrices, skip);
++					const value = {
++						...derivedFrom === void 0 ? {} : { derivedFrom, dedupSkipped: skip },
++						...detail
++					};
++					detailCache.set(sessionId, { at: summary?.updatedAt ?? 0, pk: priceKey, value });
++					return ok(request, value);
++				} catch (error) {
++					if (error instanceof ApiRemoteSessionNotFound) return err(request, {
++						code: "session-not-found",
++						message: error.message,
++						details: { sessionId }
++					});
++					return err(request, {
++						code: "internal",
++						message: `cost detail unavailable for "${sessionId}": ${String(error)}`,
++						details: {}
++					});
++				}
++			},
  			async models(request) {
  				const { sessionId } = request.payload;
  				const found = await agentFor(sessionId);
-@@ -2684,7 +2976,7 @@
+@@ -2684,7 +3373,7 @@
  						});
  						if ([...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep].some((message) => contentHasImage(message.content)) || messagesHaveImage(found.agent.session.deriveMessages())) {
  							const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model);
@@ -357,7 +754,7 @@
  								code: "model-unavailable",
  								message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
  								details: {
-@@ -2841,7 +3133,7 @@
+@@ -2841,7 +3530,7 @@
  						if (hasImage) {
  							const current = selectionFor(agent).current;
  							const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);
@@ -366,7 +763,7 @@
  								code: "attachment-error",
  								message: `Model "${current.model}" does not support image input.`,
  								details: { reason: "MODEL_DOES_NOT_SUPPORT_IMAGES" }
-@@ -3204,6 +3496,38 @@
+@@ -3204,6 +3893,38 @@
  					canOpenPath: canOpenPaths()
  				}));
  			},
@@ -405,7 +802,7 @@
  			async pickDirectory(request, signal) {
  				const capability = ctx.directoryPicker.capability();
  				if (capability.kind !== "native") return err(request, {
-@@ -4219,6 +4543,16 @@
+@@ -4219,6 +4940,16 @@
  	attachedSessions: z$1.number().int().nonnegative(),
  	canOpenPath: z$1.boolean()
  });
@@ -422,7 +819,7 @@
  /** host.pickDirectory request payload (empty object literal). */
  const hostPickDirectoryRequestSchema = z$1.object({});
  /** host.pickDirectory response value; null means the user cancelled. */
-@@ -4683,6 +5017,10 @@
+@@ -4683,6 +5414,14 @@
  		schema: sessionHistoryRequestSchema,
  		invoke: (api, r) => api.sessions.history(r)
  	},
@@ -430,10 +827,14 @@
 +		schema: sessionCostRequestSchema,
 +		invoke: (api, r, signal) => api.sessions.cost(r, signal)
 +	},
++	"session.costDetail": {
++		schema: sessionCostDetailRequestSchema,
++		invoke: (api, r, signal) => api.sessions.costDetail(r, signal)
++	},
  	"session.models": {
  		schema: sessionModelsRequestSchema,
  		invoke: (api, r) => api.sessions.models(r)
-@@ -4735,6 +5073,10 @@
+@@ -4735,6 +5474,10 @@
  		schema: hostDescribeRequestSchema,
  		invoke: (api, r) => api.host.describe(r)
  	},
@@ -444,7 +845,7 @@
  	"host.pickDirectory": {
  		schema: hostPickDirectoryRequestSchema,
  		invoke: (api, r, signal) => api.host.pickDirectory(r, signal)
-@@ -5256,6 +5598,7 @@
+@@ -5256,6 +5999,7 @@
  	"subagent.prompt": subagentPromptValueSchema,
  	"subagent.interrupt": subagentInterruptValueSchema,
  	"host.describe": hostDescribeValueSchema,
@@ -452,7 +853,7 @@
  	"host.pickDirectory": hostPickDirectoryValueSchema,
  	"host.listDirectory": hostListDirectoryValueSchema,
  	"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -5472,6 +5815,7 @@
+@@ -5472,6 +6216,7 @@
  	};
  	host = {
  		describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
@@ -460,3 +861,17 @@
  		pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
  		listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
  		createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),
+@@ -5642,6 +6387,13 @@
+ 		this.events = api.events;
+ 		this.downloads = api.downloads;
+ 		this.respond = api.respond.bind(api);
++		// [billing-prewarm] 启动后后台预热费用折叠缓存(usageSeq/parent/cost):
++		// 重启后第一次打开账单无需等待全量冷加载(约 1-3s),直接命中内存缓存。
++		setTimeout(() => {
++			api.sessions.cost({ payload: {} }).then(({ result }) => {
++				if (!result.ok) ctx.logger.warn(`session.cost prewarm failed: ${result.error?.message ?? "unknown"}`);
++			}).catch((error) => ctx.logger.warn(`session.cost prewarm failed: ${String(error)}`));
++		}, 1500);
+ 	}
+ };
+ //#endregion

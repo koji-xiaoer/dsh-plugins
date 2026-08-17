@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-token-meter/lib/index.js
 +++ node_modules/@deepseek-ai/dsh-token-meter/lib/index.js
-@@ -270,6 +270,50 @@
+@@ -270,6 +270,48 @@
  	stateVersion: 1
  };
  /**
@@ -17,7 +17,7 @@
 +	key: "tokenUsageByModel",
 +	schema: z$1.record(z$1.string(), projectionSchema),
 +	init: () => ({
-+		totals: /* @__PURE__ */ new Map(),
++		totals: {},
 +		last: null
 +	}),
 +	apply: (state, event) => {
@@ -28,10 +28,12 @@
 +		const buckets = bucketsFrom(event.data.usage);
 +		const previous = state.last !== null && state.last.turn === turn && state.last.step === step && state.last.model === model ? state.last.buckets : void 0;
 +		if (previous !== void 0 && bucketsEqual(previous, buckets)) return state;
-+		const totals = new Map(state.totals);
-+		totals.set(model, addReplacing(totals.get(model) ?? zeroBuckets(), previous, buckets));
++		const prev = Object.prototype.hasOwnProperty.call(state.totals, model) ? state.totals[model] : void 0;
 +		return {
-+			totals,
++			totals: {
++				...state.totals,
++				[model]: addReplacing(prev ?? zeroBuckets(), previous, buckets)
++			},
 +			last: {
 +				turn,
 +				step,
@@ -40,18 +42,14 @@
 +			}
 +		};
 +	},
-+	view: (state) => {
-+		const out = {};
-+		for (const [model, buckets] of state.totals) out[model] = buckets;
-+		return out;
-+	},
++	view: (state) => state.totals,
 +	stateVersion: 1
 +};
 +/**
  * Token-meter's context-occupancy projection unit.
  *
  * Independent last-wins slots: the newest usage sample supplies the provider
-@@ -418,6 +462,7 @@
+@@ -418,6 +460,7 @@
  		validateConfigKeys(config);
  		ctx.inject(["sessionProjections"], (projectionCtx) => {
  			projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition);
