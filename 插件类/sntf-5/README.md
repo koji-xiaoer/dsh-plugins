@@ -17,7 +17,8 @@
 
 | packageId | 说明 | 状态 |
 |---|---|---|
-| pkg-6 | 完整 DshNotify 行为 + NotifyRow 设置卡 | 运行中 |
+| pkg-6 | 完整 DshNotify 行为 + NotifyRow 设置卡 | 已废弃(无设置卡样式) |
+| pkg-12 | **v2 合包**:补全 .sntf-* 设置卡样式(dsw-alias 令牌) | ✅ 运行中 |
 
 ## 依赖
 
