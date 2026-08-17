@@ -25,6 +25,12 @@
 
 ## 生效方式
 
+- **一键安装(推荐)**: `bash scripts/install.sh`(仓库根目录)——自动安装 dsh 0.1.0-rc.6、
+  把本包装入 `~/.dsh/profiles/web/plugins/`、应用 `patches/ui-conversation.patch` 并配置
+  `package.json` + `cordis.patch.yml`;
+- 手动:把本目录复制到 `~/.dsh/profiles/web/plugins/dsh-mods-enhanced/`,按
+  `web/package.json` dependencies + `cordis.patch.yml` insert 配置。
+
 修改 profile 后需**重启服务**:
 `bash ~/.dsh/scripts/restart-dsh-web.sh`
 重启后插件自动常驻;动态插件(进程内)随之清空,无需再手动启动。

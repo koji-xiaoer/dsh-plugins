@@ -10,10 +10,12 @@
 - **Host 折叠引擎**(替代 usageOnly 补丁的传输路径): `sessionQuery.listSessions/listEvents` 在宿主内折叠,只传聚合 JSON
   - 价表 ESTIMATED_PRICES(deepseek-v4-flash/pro,current/peak/offpeak)、峰谷判定(北京时区 09-12/14-18,PEAK_PRICE_SINCE 2026-08-17 00:00 北京时间)、按请求时刻计价
   - `cost-all`: 全会话费用(含 byModel/byDay/turns/calls),updatedAt 变化才重折叠(缓存)
-  - `cost-session`: 单会话明细
-- **Client v1**:
+  - `cost-session`: 单会话明细;`cost-config`: 自定义价格读/写;`currency-rates`: 账单货币汇率
+- **Client v6**:
   - `conversation.composer.dock`(order 0)费用行: 总费用/输入/输出/按模型,展开每轮柱状图(对数刻度、费用降序、12 根/页)
-  - `settings.section`(id billing-v2,order 31)总账单页: 全会话费用表,行展开轮次/逐笔明细(各 10 行)
+  - `settings.section`(id **billing**,order 31)总账单页: 全会话费用表,行展开轮次/逐笔明细(各 10 行)——v6 起与补丁**同 cell 替换**,消除双入口
+  - `settings.general.item`(id `cost-estimate`,order 30)价格设置卡: 自定义每模型价格 + 恢复内置价
+  - `settings.general.item`(id `billing-currency`,order 32)货币卡: 15 币种/自动汇率/手动覆盖,全界面换算
 
 ## 版本
 
@@ -45,8 +47,8 @@
 | 类型 | 依赖 | 缺失影响 |
 |---|---|---|
 | 宿主服务 | `sessionQuery`(ctx.get 可选) | 账单/费用行无数据 |
-| 平台 | Host harness RPC(cost-session/cost-all/cost-config)+ Client slots/timer | 界面不显示 |
+| 平台 | Host harness RPC(cost-session/cost-all/cost-config/currency-rates)+ Client slots/timer | 界面不显示 |
 | 插件间 | tokm-1 投影 `tokenUsageByModel`(原设计消费方,当前独立折叠,不强制) | 无影响 |
-| 补丁 | usageOnly(session-schema + [billing-patch])= 替代动机消失;settings.section `billing` cell 并存期用 `billing-v2`;`cost-estimate` cell 同 id 替换 | 见版本待办 |
+| 补丁 | usageOnly(session-schema + [billing-patch])= 替代动机消失;settings.section `billing` **v6 起同 id 同 cell 替换补丁 UI**(原 billing-v2 并存方案已废弃);`cost-estimate` cell 同 id 替换 | 见版本待办 |
 
 完整依赖关系与规则见 `docs/插件依赖关系.md`。

@@ -1,5 +1,8 @@
 # 账单接口优化（Billing usageOnly）
 
+> **状态：不可迁移为插件（宿主内部查询优化，无插件钩子）；费用 UI 已改走 `插件类/cost-6/` 的 Host 折叠 RPC，
+> usageOnly 动机消失，补丁保留作历史归档与回退**。
+
 拉取会话历史时新增 `usageOnly` 折叠模式：只返回计费所需的 `assistant/message` usage 样本（先过滤再分页），
 避免拉取整条原始 chunk 流（会话越大越膨胀，可到数十万条/上百 MB），传输量降到千分之一。
 

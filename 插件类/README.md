@@ -26,4 +26,13 @@
 
 | pluginId | 名称 | 版本 | 说明 |
 |---|---|---|---|
-| `cfgf-1` | 配置文件网页编辑器 | pkg-2（运行中） | 设置页新增「配置文件」页面，网页内查看/编辑 settings.yaml，密钥脱敏 |
+| `cfgf-1` | 配置文件网页编辑器 | pkg-3（运行中） | 设置页新增「配置文件」页面，网页内查看/编辑 settings.yaml，密钥脱敏 |
+| `baln-4` | 余额查询 | pkg-5（运行中） | Host `balance` RPC + 会话头部余额徽标（5s 轮询） |
+| `sntf-5` | 会话完成提醒 | pkg-12 v2（运行中） | agent/status 监听 + 提示音/标题闪烁/提醒卡片 + 设置卡（.sntf-* 样式） |
+| `tokm-1` | Token 用量统计 | pkg-14 v2（运行中） | `tokenUsageByModel` 投影注册 + composer.dock 用量行（样式令牌化） |
+| `imgr-3` | 粘贴图片转文字 | pkg-4（运行中） | `agent/pre-step` 拦截替换 image 块 → GLM 识别，内容寻址缓存 |
+| `cost-6` | 费用预估与账单明细 | pkg-16 v6（运行中） | Host 折叠引擎（cost-session/cost-all/cost-config）+ 费用行/总账单/货币卡/价格卡 |
+| `dsh-mods-enhanced` | 增强功能静态化常驻包 | 1.0.0 | **非动态插件**：5 个动态插件合并为 profile 静态插件，随 dsh web 启动自动加载 |
+
+> 注：`dsh-mods-enhanced` 是静态化常驻包（`~/.dsh/profiles/web/plugins/`），不是动态插件；
+> 它合并了 baln-4/sntf-5/tokm-1/imgr-3/cost-6 五个动态插件的全部能力，随服务启动自动生效。

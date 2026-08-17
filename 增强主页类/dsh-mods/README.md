@@ -73,10 +73,14 @@ DSH_PATCH_DIR=<本仓库>/增强主页类/dsh-mods/features/余额查询 bash ds
 | 功能 | 插件 | 状态 | 退役补丁 |
 |---|---|---|---|
 | 余额查询 | `插件类/baln-4/` | ✅ 运行中 | 余额查询 3 补丁 |
-| 会话完成提醒 | `插件类/sntf-5/` | ✅ 运行中 | dsh-client-runtime-notify.patch |
+| 会话完成提醒 | `插件类/sntf-5/` | ✅ 运行中(v2 样式合包) | dsh-client-runtime-notify.patch |
 | 粘贴图片转文字 | `插件类/imgr-3/` | ✅ 运行中(agent/pre-step 拦截) | dsh-host-apiproxy.patch、dsh-llm-deepseek.patch |
-| Token 用量统计 | `插件类/tokm-1/` | ✅ 运行中(投影注册) | dsh-token-meter.patch |
-| 费用预估与账单明细 | `插件类/cost-6/` | 🔄 v1 运行中(费用行/总账单),v2 待补 | dsh-client-ui-conversation.patch(部分) |
+| Token 用量统计 | `插件类/tokm-1/` | ✅ 运行中(投影注册,v2 样式) | dsh-token-meter.patch |
+| 费用预估与账单明细 | `插件类/cost-6/` | ✅ v6 运行中(费用行/总账单/货币卡/价格卡,`billing` 同 cell 替换) | dsh-client-ui-conversation.patch(部分;其余经 `patches/ui-conversation.patch` 分发) |
 | 账单接口优化(usageOnly) | — | ❌ 不可迁移(宿主内部查询优化);费用 UI 改走 Host 折叠 RPC 后动机消失 | dsh-session-schema.patch |
+
+> **2026-08-18 静态化常驻**:以上 5 个动态插件已进一步合并为 **`插件类/dsh-mods-enhanced/`**
+> profile 静态插件,随 dsh web 启动自动加载(免 cordis_define/cordis_run),动态插件仅作回退/参考。
+> 一键安装:`scripts/install.sh`(安装 dsh + dsh-mods-enhanced + ui-conversation 补丁)。
 
 迁移细节与可行性矩阵见 `docs/迁移为插件-梳理与计划.md`。

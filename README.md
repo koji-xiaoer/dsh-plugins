@@ -15,9 +15,13 @@ DSH 的动态插件是临时运行在 DSH 进程中的 Cordis 插件，由会话
 ```
 dsh-plugins/
 ├── README.md            # 本文件
-├── scripts/             # 仓库工具：提交密钥审查扫描器
+├── README.en.md         # 英文版说明
+├── scripts/             # 仓库工具：密钥审查扫描、一键安装、任务花费预估
 ├── hooks/               # pre-commit 钩子
+├── patches/             # 分发用补丁（ui-conversation.patch，配合 scripts/install.sh）
+├── docs/                # 设计/依赖关系/迁移计划文档
 ├── 插件类/              # 动态插件：本助手创建的插件，每插件一个目录（按 pluginId）
+│   └── dsh-mods-enhanced/  # 静态化常驻包：5 个动态插件的合并版（profile 静态插件）
 ├── 增强主页类/          # 界面/主页增强：自写界面改造
 │   └── dsh-mods/        #   现有补丁集，按功能组织（余额查询/完成提醒/费用账单/图片转文字…）
 └── 其他/                # 杂项：不属于以上两类的归档
@@ -32,6 +36,13 @@ dsh-plugins/
 ├── host.js          # Host 端源码（如有）
 └── client.js        # Client 端源码（如有）
 ```
+
+**插件两种形态**：
+
+| 形态 | 说明 | 例子 |
+|---|---|---|
+| 动态插件 | 会话内 `cordis_define` 定义、`cordis_run` 运行，进程重启即失 | `插件类/baln-4/` 等 |
+| 静态化常驻包 | profile 静态插件，随 dsh web 启动自动加载，免手动运行 | `插件类/dsh-mods-enhanced/`（合并 baln-4/sntf-5/tokm-1/imgr-3/cost-6） |
 
 ## 提交审查（防密钥泄露）
 
