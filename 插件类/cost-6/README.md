@@ -24,7 +24,8 @@
 | pkg-9 | Client v2(价格设置卡)——仅 client 半,update 后 host 半丢失 | ⚠️ 教训:host/client 必须合包 |
 | pkg-10 | Host v2(cost-config 自定义价格)——仅 host 半 | 已废弃 |
 | pkg-11 | **v3 合包**:Host v2 + Client v2 同一 Package | 已废弃 |
-| pkg-13 | **v4 合包**:账单货币(currency-rates RPC + 货币卡/换算)+ .cost-* 样式令牌化 | ✅ 运行中 |
+| pkg-13 | v4:账单货币 + 样式令牌化 | 已废弃 |
+| pkg-15 | **v5 合包**:修复折叠数据源(readSession 完整事件日志,替代无 data 的 listEvents 轻量记录) | ✅ 运行中 |
 
 ## 待办(与补丁功能的差距)
 

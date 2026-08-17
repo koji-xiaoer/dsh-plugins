@@ -69,8 +69,10 @@ return {
     const updatedOf = (s) => (typeof s.updatedAt === 'number' ? s.updatedAt : String(s.updatedAt ?? ''))
     let customPrices = {}
     const foldSession = async (id) => {
-      const records = await query.listEvents(id)
-      return foldEvents(records, customPrices)
+      // 注意: sessionQuery.listEvents 返回轻量记录 {sessionId,seq,type,time,surface}(无 data),
+      // 折叠必须用 readSession 的完整事件日志(2026-08-18 pkg-15 修复)
+      const snapshot = await query.readSession(id)
+      return foldEvents(snapshot?.events ?? [], customPrices)
     }
     harness.handle('cost-config', (args) => {
       if (args !== null && typeof args === 'object' && args.action === 'set' && args.prices !== undefined && args.prices !== null && typeof args.prices === 'object') {
