@@ -25,7 +25,8 @@
 | pkg-10 | Host v2(cost-config 自定义价格)——仅 host 半 | 已废弃 |
 | pkg-11 | **v3 合包**:Host v2 + Client v2 同一 Package | 已废弃 |
 | pkg-13 | v4:账单货币 + 样式令牌化 | 已废弃 |
-| pkg-15 | **v5 合包**:修复折叠数据源(readSession 完整事件日志,替代无 data 的 listEvents 轻量记录) | ✅ 运行中 |
+| pkg-15 | v5:修复折叠数据源(readSession) | 已废弃 |
+| pkg-16 | **v6 合包**:settings.section id 改回 billing(同 cell 替换补丁,总账单去重) | ✅ 运行中 |
 
 ## 待办(与补丁功能的差距)
 
@@ -37,7 +38,7 @@
 - [ ] 折叠回复预览 FoldReplyPreview(turnTail)
 - [ ] 输入栏 CostMeter 触发器(conversation.input.right)
 - [ ] 设置卡 CSS 样式完善
-- [ ] 补丁退役后将 billing-v2 改回 billing
+- [x] 补丁退役后将 billing-v2 改回 billing——v6 已完成(同 id 替换)
 
 ## 依赖
 

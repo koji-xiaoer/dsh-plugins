@@ -321,7 +321,7 @@ return {
       (props) => React.createElement(CostDock, { sessionId: props.sessionId })
     ))
     slots.inject('settings.section', () => slots.register(
-      { name: 'settings.section', id: 'billing-v2', order: 31, label: '总账单' },
+      { name: 'settings.section', id: 'billing', order: 31, label: '总账单' },
       () => React.createElement(BillingPage, null)
     ))
     slots.inject('settings.general.item', () => slots.register(
