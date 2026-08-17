@@ -360,7 +360,7 @@ window.__ModuleLoader__.load({
 				let alive = true;
 				const load = async () => {
 					try {
-						const r = await __ctx.remote.enhanced.costConfig(sessionId, {});
+						const r = await _ctx.remote.enhanced.costConfig(sessionId, {});
 						if (!alive) return;
 						if (r !== null && typeof r === "object" && r.ok === true) { setCfg(r); setDraft(r.prices || {}); setErr(null) }
 						else setErr("配置读取失败");
@@ -453,44 +453,11 @@ window.__ModuleLoader__.load({
 
 		// ================= 插件入口 =================
 		function apply(ctx) {
-			_ctx = ctx;
-			const slots = ctx.get("slots");
-			if (slots === undefined) return;
-			slots.inject("conversation.session.header.utilities", () => slots.register(
-				{ name: "conversation.session.header.utilities", id: "baln-balance", order: 10 },
-				(props) => R.createElement(BalancePill, { sessionId: props.sessionId })
-			));
-			slots.inject("conversation.session.header.utilities", () => slots.register(
-				{ name: "conversation.session.header.utilities", id: "sntf-status", order: 20 },
-				(props) => R.createElement(NotifyEngine, { sessionId: props.sessionId })
-			));
-			slots.inject("conversation.composer.dock", () => slots.register(
-				{ name: "conversation.composer.dock", id: "cost-meter", order: 0 },
-				(props) => R.createElement(CostDock, { sessionId: props.sessionId })
-			));
-			slots.inject("conversation.composer.dock", () => slots.register(
-				{ name: "conversation.composer.dock", id: "tokm-usage", order: 10 },
-				(props) => R.createElement(TokmRow, { sessionId: props.sessionId })
-			));
-			slots.inject("settings.section", () => slots.register(
-				{ name: "settings.section", id: "billing", order: 31, label: "总账单" },
-				() => R.createElement(BillingPage, null)
-			));
-			slots.inject("settings.general.item", () => slots.register(
-				{ name: "settings.general.item", id: "cost-estimate", order: 30 },
-				() => R.createElement(CostSettings, null)
-			));
-			slots.inject("settings.general.item", () => slots.register(
-				{ name: "settings.general.item", id: "billing-currency", order: 32 },
-				() => R.createElement(CurrencyCard, null)
-			));
-			slots.inject("settings.general.item", () => slots.register(
-				{ name: "settings.general.item", id: "notify", order: 40 },
-				() => R.createElement(NotifySettings, null)
-			));
+			// dsh-mods-enhanced: 客户端 UI 已迁移回 ui-conversation,此处不再注册 slot。
+			// 服务端非远程功能(imgr 图片转文字 / sntf 完成监听 / tokm 投影)仍在 index.js。
 		}
 		exports.apply = apply;
-		exports.inject = ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-api-remotes"];
+		exports.inject = [];
 		return module.exports;
 	}
 });
