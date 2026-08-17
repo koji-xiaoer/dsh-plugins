@@ -23,11 +23,14 @@
 | pkg-8 | Client v1(费用行 + 总账单页) | 已废弃 |
 | pkg-9 | Client v2(价格设置卡)——仅 client 半,update 后 host 半丢失 | ⚠️ 教训:host/client 必须合包 |
 | pkg-10 | Host v2(cost-config 自定义价格)——仅 host 半 | 已废弃 |
-| pkg-11 | **v3 合包**:Host v2 + Client v2 同一 Package | ✅ 运行中 |
+| pkg-11 | **v3 合包**:Host v2 + Client v2 同一 Package | 已废弃 |
+| pkg-13 | **v4 合包**:账单货币(currency-rates RPC + 货币卡/换算)+ .cost-* 样式令牌化 | ✅ 运行中 |
 
 ## 待办(与补丁功能的差距)
 
 - [x] 设置页「费用预估」卡片(自定义每模型价格 + 恢复内置价)——v2 完成
+- [x] 「账单货币」卡迁移(15 币种/自动汇率/手动覆盖/全界面换算)——v4 完成
+- [x] .cost-* 样式令牌化(dsw-alias,深浅色自适应)——v4 完成
 - [ ] conversation.view billing 视图页(单会话账单 + 图表 + 分页明细)
 - [ ] 账单明细弹窗(打开冻结 + beforeSeq 向前翻页)
 - [ ] 折叠回复预览 FoldReplyPreview(turnTail)

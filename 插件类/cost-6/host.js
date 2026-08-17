@@ -106,5 +106,31 @@ return {
         return { ok: true, prices: ESTIMATED_PRICES, ...(await foldSession(id)) }
       } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
     })
+    let ratesCache = null
+    let ratesFetching = null
+    harness.handle('currency-rates', async () => {
+      if (ratesCache !== null && (ratesCache.nextUpdate || 0) > Date.now() / 1000) return { ok: true, ...ratesCache }
+      if (ratesFetching !== null) return ratesFetching
+      ratesFetching = (async () => {
+        try {
+          const response = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('rates timeout')), 10000)
+            fetch('https://open.er-api.com/v6/latest/CNY').then((r) => { clearTimeout(timer); resolve(r) }, (e) => { clearTimeout(timer); reject(e) })
+          })
+          if (!response.ok) return { ok: false, error: 'HTTP ' + response.status }
+          const json = await response.json()
+          if (json?.result === 'success' && json.rates !== null && typeof json.rates === 'object') {
+            ratesCache = { rates: json.rates, nextUpdate: json.time_next_update_unix ?? 0, fetchedAt: Date.now() }
+            return { ok: true, ...ratesCache }
+          }
+          return { ok: false, error: 'bad payload' }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) }
+        } finally {
+          ratesFetching = null
+        }
+      })()
+      return ratesFetching
+    })
   }
 }
