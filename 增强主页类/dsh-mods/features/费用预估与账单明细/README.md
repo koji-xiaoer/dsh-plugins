@@ -21,3 +21,16 @@
 | `dsh-client-ui-conversation.patch` | `dsh-client-ui-conversation/lib/client.js` | `ESTIMATED_PRICES` 内置价表、`pricingPeriod` 峰谷判定、`CostEstimateRow` / `NotifyRow` 卡片、账单明细表、`FoldReplyPreview`、`SettingsBillingSection`（总账单设置页） |
 
 > 设计规范见 `dsh-mods/UI-GUIDE.md`；设置持久化于 `~/.dsh/settings.yaml` 的 `ui-conversation` 命名空间。
+
+## 任务花费预估(对话内)
+
+`scripts/task-cost-estimate.mjs` —— 基于历史完成消耗量的任务花费预估器:
+
+- **输入**:一系列任务描述(`--tasks "任务1 | 任务2 | ..."`)
+- **方法**:中文 2-gram 匹配历史会话标题,找到相似历史任务后直接用其
+  真实消耗(成本/轮数)做区间基准;无相似历史时按复杂度分档 × 历史
+  轮均成本分布
+- **输出**:每任务(预估轮数/步数/乐观/基准/悲观费用)+ 总计区间
+- **校准数据**:`--profile` 输出历史画像(每步/每轮/每会话分布)
+
+使用方式:在对话中列出任务清单,由 agent 调用该工具给出预估。
