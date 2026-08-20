@@ -1,10 +1,6 @@
-# dsh-plugins bundle patch
-# 本仓库作为 dsh profile bundle 安装时,向 profile 配置树插入以下插件:
-# (由 package.json 的 dependencies 以 file: 引用仓库内插件源码,
-#  pnpm 安装后即可从 profile node_modules 解析)
+# dsh-mods-enhanced bundle patch
+# 本仓库作为 dsh profile bundle 安装(git 安装)时,向 profile 配置树插入本插件自身:
+# 包名 dsh-mods-enhanced 由根 package.json 声明,安装后可从 profile node_modules 解析。
 - insert:
     - id: dsh-mods-enhanced
       name: 'dsh-mods-enhanced'
-- insert:
-    - id: dsh-model-select-provider-label
-      name: 'dsh-model-select-provider-label'
