@@ -11,9 +11,15 @@
 #
 # 幂等:重复执行不会重复写入,已就位的内容自动跳过。
 #
+# 回滚支持:
+#   - 安装前自动备份 profile 相关文件到 $BACKUP_DIR(固定位置,每次覆盖)
+#   - 安装中任一步失败 → 自动回滚到备份状态
+#   - 手动回滚: bash install-model-select.sh --rollback
+#
 # 用法:
-#   bash install-model-select.sh            # 安装
+#   bash install-model-select.sh            # 安装(失败自动回滚)
 #   bash install-model-select.sh --check    # 只检查状态,不改动
+#   bash install-model-select.sh --rollback # 用最近一次备份回滚安装
 # ============================================================
 set -euo pipefail
 
@@ -24,11 +30,86 @@ PLUGIN_ID="dsh-model-select-provider-label"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 PROFILE_DIR="$DSH_HOME/profiles/web"
 MODE="${1:-install}"
+BACKUP_DIR="$DSH_HOME/profiles/web/.install-backup-$PLUGIN_ID"
+# 目标路径(需在 --rollback 分支之前定义)
+PLUGIN_DST="$PROFILE_DIR/plugins/$PLUGIN_ID"
+NODE_MOD_DST="$PROFILE_DIR/node_modules/$PLUGIN_ID"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-die() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+die() {
+  echo -e "${RED}[✗]${NC} $*" >&2
+  if [ "${BACKUP_ACTIVE:-0}" = "1" ]; then
+    rollback
+  fi
+  exit 1
+}
+
+# 安装前快照:备份所有会被修改的 profile 文件,并记录哪些原本存在
+create_backup() {
+  rm -rf "$BACKUP_DIR"
+  mkdir -p "$BACKUP_DIR"
+  : > "$BACKUP_DIR/manifest"
+  local f
+  for f in "package.json" "cordis.patch.yml"; do
+    if [ -f "$PROFILE_DIR/$f" ]; then
+      cp "$PROFILE_DIR/$f" "$BACKUP_DIR/$f"
+      echo "$f" >> "$BACKUP_DIR/manifest"
+    fi
+  done
+  if [ -d "$PLUGIN_DST" ]; then
+    cp -r "$PLUGIN_DST" "$BACKUP_DIR/plugins-dst"
+    echo "plugins-dst" >> "$BACKUP_DIR/manifest"
+  fi
+  if [ -d "$NODE_MOD_DST" ]; then
+    cp -r "$NODE_MOD_DST" "$BACKUP_DIR/node-mod-dst"
+    echo "node-mod-dst" >> "$BACKUP_DIR/manifest"
+  fi
+  BACKUP_ACTIVE=1
+  info "已创建安装前备份 → $BACKUP_DIR"
+}
+
+# 回滚:删除当前安装产物,从备份恢复(备份缺失的文件恢复为"不存在"状态)
+rollback() {
+  warn "回滚到安装前状态 ..."
+  # 先移除当前安装产物
+  rm -rf "$PLUGIN_DST" "$NODE_MOD_DST"
+  # 从备份恢复(manifest 里列出的项)
+  if [ -f "$BACKUP_DIR/manifest" ]; then
+    while IFS= read -r f; do
+      case "$f" in
+        package.json|cordis.patch.yml)
+          [ -f "$BACKUP_DIR/$f" ] && cp "$BACKUP_DIR/$f" "$PROFILE_DIR/$f"
+          ;;
+        plugins-dst)
+          [ -d "$BACKUP_DIR/plugins-dst" ] && cp -r "$BACKUP_DIR/plugins-dst" "$PLUGIN_DST"
+          ;;
+        node-mod-dst)
+          [ -d "$BACKUP_DIR/node-mod-dst" ] && cp -r "$BACKUP_DIR/node-mod-dst" "$NODE_MOD_DST"
+          ;;
+      esac
+    done < "$BACKUP_DIR/manifest"
+  fi
+  BACKUP_ACTIVE=0
+  rm -rf "$BACKUP_DIR"
+  info "回滚完成"
+}
+
+# --rollback 模式:直接回滚并退出(无需其他检查)
+if [ "$MODE" = "--rollback" ]; then
+  if [ -f "$BACKUP_DIR/manifest" ]; then
+    info "发现备份,开始回滚"
+    rollback
+    echo ""
+    echo " 回滚完成。如需重新安装: bash install-model-select.sh"
+    echo " 然后重启 dsh web: bash ~/.dsh/scripts/restart-dsh-web.sh"
+    exit 0
+  else
+    warn "未找到备份($BACKUP_DIR),无法回滚(可能从未安装过)"
+    exit 1
+  fi
+fi
 
 echo "============================================================"
 echo " dsh-model-select-provider-label 安装 (mode: ${MODE})"
@@ -40,9 +121,6 @@ echo "============================================================"
 if [ ! -d "$PROFILE_DIR" ]; then
   die "未找到 web profile: $PROFILE_DIR (请先运行一次 'dsh web' 生成目录)"
 fi
-
-PLUGIN_DST="$PROFILE_DIR/plugins/$PLUGIN_ID"
-NODE_MOD_DST="$PROFILE_DIR/node_modules/$PLUGIN_ID"
 
 # ============================================================
 # 版本检查 + 兼容性检查
@@ -140,6 +218,7 @@ if deployed_identical "$PLUGIN_SRC" "$PLUGIN_DST"; then
   info "plugins/$PLUGIN_ID 已就位且一致,跳过"
 else
   [ "$MODE" = "install" ] || die "--check: 插件源码未就位($PLUGIN_DST)"
+  create_backup
   rm -rf "$PLUGIN_DST"
   mkdir -p "$PLUGIN_DST"
   cp -r "$PLUGIN_SRC/lib" "$PLUGIN_DST/"
@@ -152,6 +231,7 @@ if deployed_identical "$PLUGIN_SRC" "$NODE_MOD_DST"; then
   info "node_modules/$PLUGIN_ID 已就位且一致,跳过"
 else
   [ "$MODE" = "install" ] || die "--check: node_modules 运行副本未就位($NODE_MOD_DST)"
+  [ "${BACKUP_ACTIVE:-0}" = "1" ] || create_backup
   rm -rf "$NODE_MOD_DST"
   mkdir -p "$NODE_MOD_DST"
   cp -r "$PLUGIN_SRC/lib" "$NODE_MOD_DST/"
@@ -165,6 +245,7 @@ if [ -f "$PKG_FILE" ] && grep -q "\"$PLUGIN_ID\"" "$PKG_FILE" 2>/dev/null; then
   info "package.json 已包含 $PLUGIN_ID,跳过"
 else
   [ "$MODE" = "install" ] || die "--check: package.json 缺少依赖 $PLUGIN_ID"
+  [ "${BACKUP_ACTIVE:-0}" = "1" ] || create_backup
   node -e '
 const fs = require("fs");
 const p = process.argv[1];
@@ -182,6 +263,7 @@ if [ -f "$CORDIS" ] && grep -q "$PLUGIN_ID" "$CORDIS" 2>/dev/null; then
   info "cordis.patch.yml 已包含 $PLUGIN_ID,跳过"
 else
   [ "$MODE" = "install" ] || die "--check: cordis.patch.yml 缺少 $PLUGIN_ID insert"
+  [ "${BACKUP_ACTIVE:-0}" = "1" ] || create_backup
   cat >> "$CORDIS" <<EOF
 - insert:
     - id: $PLUGIN_ID
@@ -213,4 +295,10 @@ echo "   1. 重启 dsh web:  bash ~/.dsh/scripts/restart-dsh-web.sh"
 echo "   2. 浏览器强制刷新: http://127.0.0.1:3080"
 echo " 验证:"
 echo "   触发按钮应显示 '提供商 · 模型' (如 DeepSeek · DeepSeek-V4-Flash)"
+if [ -d "$BACKUP_DIR" ]; then
+  echo ""
+  echo " 回滚:"
+  echo "   如需撤销本次安装: bash install-model-select.sh --rollback"
+  echo "   (备份位于: $BACKUP_DIR)"
+fi
 echo "============================================================"
