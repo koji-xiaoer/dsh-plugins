@@ -44,6 +44,88 @@ fi
 PLUGIN_DST="$PROFILE_DIR/plugins/$PLUGIN_ID"
 NODE_MOD_DST="$PROFILE_DIR/node_modules/$PLUGIN_ID"
 
+# ============================================================
+# 版本检查 + 兼容性检查
+#
+# 本插件适配的 dsh 版本。版本一致时直接安装;
+# 版本不一致时,先做接口级兼容性检查——本插件依赖的全部
+# 关键符号都在目标 dsh 安装中可用才允许继续,否则中止。
+# ============================================================
+REQUIRED_DSH_VERSION="${REQUIRED_DSH_VERSION:-0.1.0-rc.6}"
+
+# 定位全局 dsh 包根(兼容 npm/pnpm 布局;可用 DSH_PKG 环境变量显式指定)
+locate_dsh_pkg() {
+  if [ -n "${DSH_PKG:-}" ] && [ -f "$DSH_PKG/package.json" ]; then
+    echo "$DSH_PKG"
+    return 0
+  fi
+  if command -v dsh >/dev/null 2>&1; then
+    local bin; bin="$(command -v dsh)"
+    local real; real="$(readlink -f "$bin" 2>/dev/null || echo "$bin")"
+    local dir; dir="$(dirname "$real")"
+    # bin.js 上一级为包根
+    echo "$(cd "$dir/.." && pwd)"
+  elif [ -n "${NODE_PATH:-}" ]; then
+    echo "${NODE_PATH%%:*}@deepseek-ai/dsh"
+  else
+    echo ""
+  fi
+}
+
+DSH_PKG="$(locate_dsh_pkg)"
+if [ -z "$DSH_PKG" ] || [ ! -f "$DSH_PKG/package.json" ]; then
+  die "无法定位 dsh 包根(未安装 dsh? 请先 npm install -g @deepseek-ai/dsh)"
+fi
+
+ACTUAL_DSH_VERSION="$(node -p "require('$DSH_PKG/package.json').version" 2>/dev/null || echo 'unknown')"
+info "dsh 版本: ${ACTUAL_DSH_VERSION} (插件适配: ${REQUIRED_DSH_VERSION})"
+
+# 兼容性检查:逐项验证插件依赖的接口符号在目标 dsh 中可用
+check_compat() {
+  local ok=1 item file pat
+  check_sym() { # item, file, pattern
+    item="$1"; file="$2"; pat="$3"
+    if [ -f "$file" ] && grep -qE "$pat" "$file" 2>/dev/null; then
+      info "  [兼容] $item"
+    else
+      warn "  [缺失] $item (未在 $file 中找到 $pat)"
+      ok=0
+    fi
+  }
+  local NM="$DSH_PKG/node_modules/@deepseek-ai"
+  echo "── 接口级兼容性检查 ──"
+  check_sym "modelDirectories 会话服务" "$NM/dsh-client-ui-model-selection/lib/client.js" "modelDirectories"
+  check_sym "conversation.input.model seat" "$NM/dsh-client-ui-model-selection/lib/client.js" "conversation\.input\.model"
+  check_sym "slots.register 的 priority 语义" "$NM/dsh-client-ui-slots/lib/index.js" "options\.priority"
+  check_sym "ModelDirectory store(createSnapshotStore)" "$NM/dsh-client-ui-model-selection/lib/client.js" "createSnapshotStore"
+  check_sym "session.models 目录 RPC" "$NM/dsh-client-connection/lib/client.js" "\.models\b"
+  check_sym "locale active 快照字段" "$NM/dsh-client-locale/lib/client.js" "active"
+  check_sym "__ModuleLoader__ 加载机制" "$NM/dsh-client-ui-model-selection/lib/client.js" "__ModuleLoader__"
+  check_sym "dsh-client-runtime(静态插件注入链)" "$NM/dsh-client-runtime/lib/index.js" "apply|inject"
+  check_sym "dsh-client-ui-conversation(composer.bar 宿主)" "$NM/dsh-client-ui-conversation/lib/client.js" "conversation\.composer\.bar|composer\.bar"
+  [ "$ok" = "1" ] && { info "兼容性检查全部通过"; return 0; }
+  warn "存在缺失项,建议升级/降级到适配版本 ${REQUIRED_DSH_VERSION} 后再安装"
+  return 1
+}
+
+if [ "$ACTUAL_DSH_VERSION" = "$REQUIRED_DSH_VERSION" ]; then
+  info "版本一致,直接安装"
+else
+  warn "版本不一致: 当前 ${ACTUAL_DSH_VERSION} ≠ 适配 ${REQUIRED_DSH_VERSION}"
+  if [ "$MODE" = "install" ]; then
+    if check_compat; then
+      echo ""
+      warn "接口兼容性检查通过,继续安装"
+    else
+      echo ""
+      die "接口兼容性检查未通过:插件依赖的接口在当前 dsh 版本中不可用,拒绝安装"
+    fi
+  else
+    # --check 模式:报告但不停(由最终汇总决定)
+    check_compat || true
+  fi
+fi
+
 # 比较部署必需文件(README 等文档不入 profile,不参与一致性判断)
 deployed_identical() {
   local src="$1" dst="$2" f
