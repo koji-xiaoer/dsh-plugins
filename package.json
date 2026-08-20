@@ -1,7 +1,7 @@
 {
   "name": "dsh-mods-enhanced",
   "version": "1.0.0",
-  "description": "DSH 增强功能静态化常驻包(bundle):余额查询/会话完成提醒/费用预估与账单明细/粘贴图片转文字/Token 用量统计",
+  "description": "DSH 增强功能静态化常驻包(bundle):余额查询/会话完成提醒/费用预估与账单明细/粘贴图片转文字/Token 用量统计;仓库另含模型选择器增强等插件源码与一键安装脚本",
   "type": "module",
   "main": "./插件类/dsh-mods-enhanced/lib/index.js",
   "exports": {

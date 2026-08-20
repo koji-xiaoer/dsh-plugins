@@ -64,7 +64,7 @@ dsh-plugins/
 dsh plugin --profile web add github:koji-xiaoer/dsh-plugins
 ```
 
-该命令会通过 pnpm 安装本仓库,自动把 `dsh-mods-enhanced`、`dsh-model-select-provider-label` 两个插件插入 web profile,重启 `dsh web` 后生效(插件声明了 `dsh.client`,前端模块随之注入)。
+该命令会通过 pnpm 安装本仓库(包名 `dsh-mods-enhanced`,即 `插件类/dsh-mods-enhanced` 的合并增强插件:余额查询 / 会话完成提醒 / 费用预估与账单明细 / 粘贴图片转文字 / Token 用量统计),自动将其插入 web profile,重启 `dsh web` 后生效(插件声明了 `dsh.client`,前端模块随之注入)。
 
 > 注意:需要 PATH 上有 pnpm(Node.js >= 20 自带 corepack,`corepack enable` 即可)。
 

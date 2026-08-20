@@ -59,7 +59,7 @@ This repository root declares `dsh.bundle` (see `package.json` + `cordis.patch.y
 dsh plugin --profile web add github:koji-xiaoer/dsh-plugins
 ```
 
-This installs the repo via pnpm and inserts the `dsh-mods-enhanced` and `dsh-model-select-provider-label` plugins into the web profile; restart `dsh web` to activate (both declare `dsh.client`, so their front-end modules are injected too).
+This installs the repo via pnpm (package name `dsh-mods-enhanced` — the merged enhancement plugin from `插件类/dsh-mods-enhanced`: balance query / completion notify / cost estimate & billing / paste-image-to-text / token usage stats) and inserts it into the web profile; restart `dsh web` to activate (it declares `dsh.client`, so its front-end module is injected too).
 
 > Note: pnpm must be on PATH (Node.js >= 20 ships corepack: `corepack enable`).
 
