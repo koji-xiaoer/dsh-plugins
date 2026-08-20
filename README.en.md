@@ -56,7 +56,7 @@ This repository is **public** — any committed secret must be treated as leaked
 Install the full customization set on any machine (requires Node.js >= 20 + network):
 
 ```bash
-git clone git@gitee.com:CGWP/dsh-plugins.git
+git clone git@github.com:koji-xiaoer/dsh-plugins.git
 cd dsh-plugins
 bash scripts/install.sh
 ```
@@ -78,4 +78,4 @@ After install, restart `dsh web --port 3080`. Image-to-text needs `ZHIPU_API_KEY
 2. Retrieve the latest Package source with `cordis_inspect_self(pluginId, packageId)`
 3. Save it into this repository following the layout above, then commit
 
-Push via SSH: `git@gitee.com:CGWP/dsh-plugins.git`
+Push via SSH: `git@github.com:koji-xiaoer/dsh-plugins.git`

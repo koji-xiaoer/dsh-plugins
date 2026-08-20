@@ -54,14 +54,14 @@ dsh-plugins/
    - 确认为误报的，将 `相对路径:整行内容` 追加到 `scripts/secret-allowlist.txt`，并写一行 `# 理由`；
 2. **插件源码规则**：不得硬编码任何密钥/token，一律使用 `<YOUR_XXX_TOKEN>` 占位符，运行时从环境变量或独立配置文件读取；
 3. **本地自动拦截**：已启用 pre-commit 钩子（`git config core.hooksPath hooks`），每次 `git commit` 自动扫描暂存区，命中即中止提交；
-4. **若怀疑密钥已泄露**：立即到 https://gitee.com/profile/personal_access_tokens 吊销对应令牌，再处理仓库历史。
+4. **若怀疑密钥已泄露**：立即到 https://github.com/settings/tokens 吊销对应令牌，再处理仓库历史。
 
 ## 一键安装
 
 把本仓库的一套定制装到任意机器（前提：Node.js >= 20 + 联网）:
 
 ```bash
-git clone git@gitee.com:CGWP/dsh-plugins.git
+git clone git@github.com:koji-xiaoer/dsh-plugins.git
 cd dsh-plugins
 bash scripts/install.sh
 ```
@@ -99,5 +99,5 @@ bash scripts/install.sh
 
 ## 维护
 
-- 使用 SSH 推送：`git@gitee.com:CGWP/dsh-plugins.git`
+- 使用 SSH 推送：`git@github.com:koji-xiaoer/dsh-plugins.git`
 - 每次提交说明对应哪个插件、哪个 Package 版本
