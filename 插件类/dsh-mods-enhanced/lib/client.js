@@ -451,6 +451,54 @@ window.__ModuleLoader__.load({
 			return R.createElement("div", { className: "tokm-row" }, rows);
 		}
 
+		// ================= 账单视图(conversation.view billing tab) =================
+		function BillingViewTab(props) {
+			const sessionId = props.sessionId;
+			const cur = useCurrency();
+			const [data, setData] = R.useState(null);
+			const [openTurns, setOpenTurns] = R.useState(false);
+			R.useEffect(() => {
+				let alive = true;
+				const tick = async () => {
+					try { const r = await _ctx.remote.enhanced.costSession(sessionId, { sessionId }); if (alive && r !== null && typeof r === "object" && r.ok === true) setData(r) } catch {}
+					ensureRates(sessionId);
+					syncCurrency();
+				};
+				tick();
+				const h = setInterval(tick, 3000);
+				return () => { alive = false; clearInterval(h) };
+			}, [sessionId]);
+			if (data === null) return R.createElement("div", { className: "cost-empty" }, "账单加载中…");
+			const models = Object.entries(data.byModel || {});
+			const turns = data.turns || [], calls = data.calls || [];
+			return R.createElement("div", { className: "cost-dock" },
+				R.createElement("div", { className: "cost-dock-row" },
+					R.createElement("span", { className: "cost-dock-total" }, "费用 " + fmtCost(data.cost, cur)),
+					R.createElement("span", null, "输入 " + fmtTok(data.input + data.write)),
+					R.createElement("span", null, "输出 " + fmtTok(data.output)),
+					models.slice(0, 3).map((kv) => R.createElement(ModelChip, { key: kv[0], model: kv[0], cost: kv[1].cost, cur: cur })),
+					turns.length > 0 ? R.createElement("span", { className: "cost-dock-toggle", onClick: () => setOpenTurns(!openTurns) }, openTurns ? "收起柱状图 ▲" : "每轮费用 ▼") : null),
+				openTurns && turns.length > 0 ? R.createElement(TurnBars, { turns }) : null,
+				R.createElement("div", { style: { marginTop: 6, fontWeight: 500, fontSize: 12 } }, "轮次明细(" + turns.length + ")"),
+				R.createElement("table", { className: "cost-table" },
+					R.createElement("thead", null, R.createElement("tr", null,
+						R.createElement("th", null, "轮次"), R.createElement("th", null, "步数"), R.createElement("th", null, "模型"),
+						R.createElement("th", { className: "cost-num" }, "输入"), R.createElement("th", { className: "cost-num" }, "输出"), R.createElement("th", { className: "cost-num" }, "费用"))),
+					R.createElement("tbody", null, turns.slice(0, 10).map((t) => R.createElement("tr", { key: String(t.turn) },
+						R.createElement("td", null, "#" + t.turn), R.createElement("td", null, t.steps), R.createElement("td", null, t.model),
+						R.createElement("td", { className: "cost-num" }, fmtTok(t.input + t.write)), R.createElement("td", { className: "cost-num" }, fmtTok(t.output)),
+						R.createElement("td", { className: "cost-num" }, fmtCost(t.cost, cur))))),
+				R.createElement("div", { style: { marginTop: 6, fontWeight: 500, fontSize: 12 } }, "逐笔明细(" + calls.length + ")"),
+				R.createElement("table", { className: "cost-table" },
+					R.createElement("thead", null, R.createElement("tr", null,
+						R.createElement("th", null, "时间"), R.createElement("th", null, "轮/步"), R.createElement("th", null, "模型"),
+						R.createElement("th", { className: "cost-num" }, "输入"), R.createElement("th", { className: "cost-num" }, "输出"), R.createElement("th", { className: "cost-num" }, "费用"))),
+					R.createElement("tbody", null, calls.slice(0, 10).map((c, i) => R.createElement("tr", { key: String(i) },
+						R.createElement("td", null, fmtTime(c.time)), R.createElement("td", null, "#" + c.turn + "." + c.step), R.createElement("td", null, c.model),
+						R.createElement("td", { className: "cost-num" }, fmtTok(c.input + c.write)), R.createElement("td", { className: "cost-num" }, fmtTok(c.output)),
+						R.createElement("td", { className: "cost-num" }, fmtCost(c.cost, cur))))))));
+		}
+
 		// ================= 插件入口 =================
 		function apply(ctx) {
 			// dsh-mods-enhanced: 客户端 UI 已迁移回 ui-conversation,此处不再注册 slot。

@@ -58,7 +58,17 @@ dsh-plugins/
 
 ## 一键安装
 
-把本仓库的一套定制装到任意机器（前提：Node.js >= 20 + 联网）:
+本仓库根目录声明了 `dsh.bundle`(见 `package.json` + `cordis.patch.yml`),可作为 **DSH profile bundle** 标准安装:
+
+```bash
+dsh plugin --profile web add github:koji-xiaoer/dsh-plugins
+```
+
+该命令会通过 pnpm 安装本仓库,自动把 `dsh-mods-enhanced`、`dsh-model-select-provider-label` 两个插件插入 web profile,重启 `dsh web` 后生效(插件声明了 `dsh.client`,前端模块随之注入)。
+
+> 注意:需要 PATH 上有 pnpm(Node.js >= 20 自带 corepack,`corepack enable` 即可)。
+
+若需要同时应用 **ui-conversation 客户端增强补丁**(费用预估 / 账单 / 货币 / 通知 / 余额界面增强,属于对 dsh 安装文件的文本补丁,bundle 机制无法覆盖),再执行传统脚本:
 
 ```bash
 git clone git@github.com:koji-xiaoer/dsh-plugins.git
@@ -101,3 +111,7 @@ bash scripts/install.sh
 
 - 使用 SSH 推送：`git@github.com:koji-xiaoer/dsh-plugins.git`
 - 每次提交说明对应哪个插件、哪个 Package 版本
+
+## 许可证
+
+[MIT](LICENSE) © 2026 koji-xiaoer (CGWP)

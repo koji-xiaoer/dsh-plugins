@@ -1,0 +1,36 @@
+{
+  "name": "dsh-plugins",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness (DSH) 插件合集:模型选择器增强、余额查询、费用预估与账单明细、粘贴图片转文字、会话完成提醒、Token 用量统计等插件及一键安装脚本",
+  "type": "module",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "plugin"
+  ],
+  "files": [
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "README.en.md",
+    "插件类",
+    "增强主页类",
+    "patches",
+    "scripts",
+    "docs",
+    "hooks",
+    "其他"
+  ],
+  "dependencies": {
+    "dsh-mods-enhanced": "file:插件类/dsh-mods-enhanced",
+    "dsh-model-select-provider-label": "file:插件类/dsh-model-select-provider-label"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

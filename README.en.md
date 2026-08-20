@@ -51,9 +51,19 @@ This repository is **public** — any committed secret must be treated as leaked
 - Plugin sources must never hardcode secrets: use `<YOUR_XXX_TOKEN>` placeholders and read real values from environment/config at runtime.
 - A pre-commit hook is enabled via `git config core.hooksPath hooks`.
 
-## One-click install
+## Install
 
-Install the full customization set on any machine (requires Node.js >= 20 + network):
+This repository root declares `dsh.bundle` (see `package.json` + `cordis.patch.yml`) and installs as a standard **DSH profile bundle**:
+
+```bash
+dsh plugin --profile web add github:koji-xiaoer/dsh-plugins
+```
+
+This installs the repo via pnpm and inserts the `dsh-mods-enhanced` and `dsh-model-select-provider-label` plugins into the web profile; restart `dsh web` to activate (both declare `dsh.client`, so their front-end modules are injected too).
+
+> Note: pnpm must be on PATH (Node.js >= 20 ships corepack: `corepack enable`).
+
+For the additional **ui-conversation client enhancement patch** (cost estimate / billing / currency / notify / balance UI, a text patch on dsh's own files that the bundle mechanism cannot cover), use the legacy script:
 
 ```bash
 git clone git@github.com:koji-xiaoer/dsh-plugins.git
@@ -79,3 +89,7 @@ After install, restart `dsh web --port 3080`. Image-to-text needs `ZHIPU_API_KEY
 3. Save it into this repository following the layout above, then commit
 
 Push via SSH: `git@github.com:koji-xiaoer/dsh-plugins.git`
+
+## License
+
+[MIT](LICENSE) © 2026 koji-xiaoer (CGWP)
