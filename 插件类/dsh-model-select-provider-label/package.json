@@ -1,0 +1,24 @@
+{
+  "name": "dsh-model-select-provider-label",
+  "version": "1.0.0",
+  "description": "模型选择器增强(常驻):触发按钮显示 提供商·模型,超阈值提供商折叠为级联面板,按前缀分类,三级菜单带返回",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "license": "MIT"
+}
