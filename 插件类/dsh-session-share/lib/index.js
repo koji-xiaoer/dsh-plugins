@@ -176,6 +176,11 @@ export default {
 			if (typeof args.shareId !== 'string') return { ok: false, error: 'missing shareId' }
 			return readShare(args.shareId, args.limit)
 		})
+		route('/sshp/resolve', async (args) => {
+			const entry = shares.get(String(args.shareId || ''))
+			if (entry === undefined) return { ok: false, error: 'not found' }
+			return { ok: true, shareId: entry.shareId, title: await titleOf(entry.sessionId), note: entry.note }
+		})
 
 		// 提示词规则:其他会话的 agent 看到分享ID自动调用工具(工具指引惯例 order 100-199)
 		const systemPrompt = ctx.get('systemPrompt')

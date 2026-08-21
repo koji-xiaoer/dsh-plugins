@@ -1,19 +1,62 @@
 --- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-@@ -8195,9 +8195,13 @@
- 					"data-ref-chip": isShare ? "share" : (referenceKind ?? "skill"),
+@@ -8139,6 +8139,38 @@
+ 		* scan as the composer, minus the lexicon: sent tokens were validated at
+ 		* compose time, so shape alone decorates).
+ 		*/
++		/** session-share chip:按分享ID解析标题,展示「会话:标题前几字…」,悬停显示 ID+全标题。 */
++		function ShareRefChip({ id }) {
++			const chipState = (0, react.useState)(null);
++			const info = chipState[0];
++			const setInfo = chipState[1];
++			(0, react.useEffect)(() => {
++				let alive = true;
++				try {
++					fetch("/sshp/resolve?shareId=" + encodeURIComponent(id)).then((r) => r.json()).then((j) => {
++						if (alive && j !== null && typeof j === "object" && j.ok === true) setInfo(j);
++					}).catch(() => {});
++				} catch {}
++				return () => { alive = false };
++			}, [id]);
++			const title = info !== null && typeof info.title === "string" ? info.title : "";
++			const shown = title === "" ? id : "会话:" + (title.length > 10 ? title.slice(0, 10) + "…" : title);
++			return (0, react_jsx_runtime.jsx)("span", {
++				className: MessageItem_module_css_default.refChip,
++				"data-ref-chip": "share",
++				title: id + (title === "" ? "" : " 《" + title + "》"),
++				style: {
++					borderRadius: "999px",
++					padding: "1px 8px",
++					border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent)",
++					background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent)",
++					color: "var(--dsw-alias-label-primary)",
++					fontSize: "13px",
++					lineHeight: "18px"
++				}
++			}, shown);
++		}
++
+ 		function projectUserText(text, sessionLabels) {
+ 			const ranges = [];
+ 			for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
+@@ -8187,18 +8219,12 @@
+ 				if (range.start < cursor) continue;
+ 				const { start: tokenStart, end, label, kind } = range;
+ 				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
+-				const isShare = kind === "share";
+ 				const referenceKind = kind === "session" ? "session" : label.startsWith("@") ? label.endsWith("/") ? "folder" : "file" : void 0;
+ 				const displayLabel = referenceKind === void 0 ? label : referenceKind === "session" ? label.slice(1) : label.slice(1).replace(/^"|"$/gu, "").split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1);
+-				parts.push((0, react_jsx_runtime.jsxs)("span", {
++				parts.push(kind === "share" ? (0, react_jsx_runtime.jsx)(ShareRefChip, { id: label }, tokenStart) : (0, react_jsx_runtime.jsxs)("span", {
+ 					className: MessageItem_module_css_default.refChip,
+-					"data-ref-chip": isShare ? "share" : (referenceKind ?? "skill"),
++					"data-ref-chip": referenceKind ?? "skill",
  					title: label,
- 					style: isShare ? {
+-					style: isShare ? {
 -						border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent)",
 -						background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent)",
 -						color: "var(--dsw-alias-state-business-primary)"
-+						borderRadius: "999px",
-+						padding: "1px 8px",
-+						border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent)",
-+						background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent)",
-+						color: "var(--dsw-alias-label-primary)",
-+						fontSize: "13px",
-+						lineHeight: "18px"
- 					} : void 0,
+-					} : void 0,
  					children: [referenceKind !== void 0 && (0, react_jsx_runtime.jsx)(ReferenceIcon, {
  						kind: referenceKind,
+ 						size: 16,
