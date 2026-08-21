@@ -25,7 +25,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-PLUGIN_SRC="$REPO_DIR/插件类/dsh-model-select-provider-label"
+# 兼容从 ~/.dsh/scripts/ 等外部目录运行时(脚本被复制出去但插件源码留在仓库):
+# 依次尝试:脚本同级的仓库根 → 常见仓库位置 → ~/.dsh/scripts 同级的仓库根
+find_plugin_src() {
+  local candidates=(
+    "$REPO_DIR/插件类/dsh-model-select-provider-label"
+    "$HOME/dsh-plugins/插件类/dsh-model-select-provider-label"
+    "$HOME/.dsh/scripts/../dsh-plugins/插件类/dsh-model-select-provider-label"
+  )
+  for c in "${candidates[@]}"; do
+    if [ -f "$c/package.json" ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+PLUGIN_SRC="$(find_plugin_src || echo "$REPO_DIR/插件类/dsh-model-select-provider-label")"
 PLUGIN_ID="dsh-model-select-provider-label"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 PROFILE_DIR="$DSH_HOME/profiles/web"
@@ -170,11 +183,26 @@ check_compat() {
       ok=0
     fi
   }
+  # check_sym_any: 多个候选文件任一命中即视为兼容(适配不同版本布局)
+  check_sym_any() { # item, pattern, file...
+    item="$1"; pat="$2"; shift 2
+    for f in "$@"; do
+      if [ -f "$f" ] && grep -qE "$pat" "$f" 2>/dev/null; then
+        info "  [兼容] $item"
+        return 0
+      fi
+    done
+    warn "  [缺失] $item (候选文件均未找到 $pat: $*)"
+    ok=0
+  }
   local NM="$DSH_PKG/node_modules/@deepseek-ai"
   echo "── 接口级兼容性检查 ──"
   check_sym "modelDirectories 会话服务" "$NM/dsh-client-ui-model-selection/lib/client.js" "modelDirectories"
   check_sym "conversation.input.model seat" "$NM/dsh-client-ui-model-selection/lib/client.js" "conversation\.input\.model"
-  check_sym "slots.register 的 priority 语义" "$NM/dsh-client-ui-slots/lib/index.js" "options\.priority"
+  # slots 服务:rc.6 为独立包 dsh-client-ui-slots;0.1.1 起并入 dsh-client-runtime(前端 bundle 平台模块)
+  check_sym_any "slots.register 的 priority 语义" "priority" \
+    "$NM/dsh-client-ui-slots/lib/index.js" \
+    "$NM/dsh-client-runtime/lib/client.js"
   check_sym "ModelDirectory store(createSnapshotStore)" "$NM/dsh-client-ui-model-selection/lib/client.js" "createSnapshotStore"
   check_sym "session.models 目录 RPC" "$NM/dsh-client-connection/lib/client.js" "\.models\b"
   check_sym "locale active 快照字段" "$NM/dsh-client-locale/lib/client.js" "active"

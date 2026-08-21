@@ -41,6 +41,12 @@ check_only() {
   else
     warn "profile 中未找到 dsh-mods-enhanced"
   fi
+  echo "== 模型选择插件接口兼容性 =="
+  if [ -f "$REPO_DIR/scripts/install-model-select.sh" ] || [ -f "$HOME/.dsh/scripts/install-model-select.sh" ]; then
+    if bash "$( [ -f "$REPO_DIR/scripts/install-model-select.sh" ] && echo "$REPO_DIR/scripts/install-model-select.sh" || echo "$HOME/.dsh/scripts/install-model-select.sh" )" --check >/dev/null 2>&1; then info "兼容"; else warn "存在缺失项(见上方明细)"; rc=1; fi
+  else
+    warn "未找到 install-model-select.sh"
+  fi
   echo "== 服务 =="
   systemctl --user is-active dsh-web 2>/dev/null || echo "dsh-web 未运行"
   return $rc
@@ -63,7 +69,19 @@ elif [ -f "$REAPPLY_HOME" ]; then bash "$REAPPLY_HOME" || die "补丁重放失�
 else die "找不到 reapply-dsh-mods.sh"
 fi
 
-# ---------- 3. 同步 host 插件进 profile ----------
+# ---------- 3. 兼容性检测(模型选择插件接口,适配新旧版本布局) ----------
+if [ -f "$REPO_DIR/scripts/install-model-select.sh" ] || [ -f "$HOME/.dsh/scripts/install-model-select.sh" ]; then
+  info "模型选择插件接口兼容性检测 ..."
+  if bash "$( [ -f "$REPO_DIR/scripts/install-model-select.sh" ] && echo "$REPO_DIR/scripts/install-model-select.sh" || echo "$HOME/.dsh/scripts/install-model-select.sh" )" --check >/dev/null 2>&1; then
+    info "兼容性检测通过"
+  else
+    warn "兼容性检测未完全通过(不影响升级本身;可稍后手动处理 model-select 插件)"
+  fi
+else
+  warn "未找到 install-model-select.sh,跳过兼容性检测"
+fi
+
+# ---------- 4. 同步 host 插件进 profile ----------
 if [ -d "$(dirname "$PLUGIN_DST")" ]; then
   info "同步 host 插件(裁剪版,去图片中继) → profile ..."
   cp "$PLUGIN_SRC" "$PLUGIN_DST"
@@ -73,7 +91,7 @@ else
   warn "profile 中无 dsh-mods-enhanced,跳过插件同步(若使用 git 安装请先 pnpm update)"
 fi
 
-# ---------- 4. 重启服务 ----------
+# ---------- 5. 重启服务 ----------
 info "重启 dsh-web ..."
 if systemctl --user restart dsh-web 2>/dev/null; then
   sleep 4
