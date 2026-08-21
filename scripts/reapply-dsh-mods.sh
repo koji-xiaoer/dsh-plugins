@@ -37,6 +37,7 @@ readonly PATCHES=(
   "node_modules/@deepseek-ai/dsh-token-meter/lib/index.js|node_modules/@deepseek-ai/dsh-token-meter/lib/index.bak-cost.js|tokenUsageByModelProjectionDefinition|dsh-token-meter.patch"
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js.orig|billing-backend|dsh-host-apiproxy.patch"
   "node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js|node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.orig.js|ESTIMATED_PRICES|dsh-client-ui-conversation.patch"
+  "node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js|node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js.orig-pre-sharechip|kind: \"share\"|dsh-client-ui-conversation-sharechip.patch"
   "node_modules/@deepseek-ai/dsh-client-connection/lib/client.js|node_modules/@deepseek-ai/dsh-client-connection/lib/client.js.orig-balance|hostBalanceValueSchema|dsh-client-connection.patch"
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js.orig-usageonly|usageOnly|dsh-session-schema.patch"
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js.orig-balance|hostBalanceValueSchema|dsh-host-schema.patch"

@@ -176,40 +176,6 @@ window.__ModuleLoader__.load({
 			return React.createElement("div", { className: "sshp-page" }, desc, table, foot);
 		}
 
-		// ================= 组件:chat 轮次标签(turnTail,用户消息含 shr-* 时显示) =================
-		function selectShareInTurn(owner) {
-			try {
-				const turn = owner && owner.turn;
-				if (turn === null || typeof turn !== "object" || turn.data === undefined || typeof turn.data.get === "undefined" || typeof turn.data.forEach !== "function") return null;
-				let text = "";
-				turn.data.forEach((value) => {
-					if (value !== null && typeof value === "object" && Array.isArray(value.content)) {
-						for (const block of value.content) {
-							if (block !== null && typeof block === "object" && block.type === "text" && typeof block.text === "string") text += block.text + "\n";
-						}
-					}
-				});
-				const match = text.match(/shr-[a-z0-9]{4,}/i);
-				return match === null ? null : { shareId: match[0] };
-			} catch { return null }
-		}
-
-		function ShareTurnBadge(props) {
-			const matched = props.matched;
-			const [info, setInfo] = React.useState(null);
-			React.useEffect(() => {
-				let alive = true;
-				rpc("/sshp/read", { shareId: matched.shareId, limit: 3 }).then((r) => { if (alive) setInfo(r) }).catch(() => {});
-				return () => { alive = false };
-			}, [matched.shareId]);
-			const ok = info !== null && typeof info === "object" && info.ok === true;
-			return React.createElement("div", { className: "sshp-turnbadge" },
-				React.createElement("span", { className: "sshp-turnchip" }, "🔗 会话分享"),
-				React.createElement("span", { className: "sshp-turnid" }, matched.shareId),
-				React.createElement("span", { className: "sshp-turntitle" },
-					ok ? "《" + (info.title || "无标题") + "》" + (info.note ? " · " + info.note : "") : "识别为分享会话引用，摘要加载中…"));
-		}
-
 		// ================= 组件:读分享工具卡片(tool.call.toolview keyed) =================
 		function ShareReadCard(props) {
 			let shareId = "";
@@ -253,10 +219,6 @@ window.__ModuleLoader__.load({
 				{ name: "settings.section", id: "session-share", order: 40, label: "会话分享" },
 				() => React.createElement(ShareManager, null)
 			));
-			slots.inject("conversation.chat.turnTail", () => slots.register({
-				name: "conversation.chat.turnTail",
-				select: selectShareInTurn
-			}, ShareTurnBadge));
 			slots.inject("tool.call.toolview", () => slots.register({
 				name: "tool.call.toolview",
 				key: "read_shared_session"

@@ -14,7 +14,7 @@
 | 发布对话框 | 显示会话标题 + 备注输入(可选);已分享的会话再次打开显示分享ID并变为"保存并保持分享";发布成功后**自动复制分享ID到剪贴板**并弹出成功卡片(剪贴板不可用时兜底展示可手选的 ID) |
 | 模型工具 `read_shared_session` | 其他会话的 agent 调用即可列出/读取分享;返回格式化的最近消息文本摘要 |
 | 分享ID 自动识别 | 注册 `systemPrompt` 指引(order 110):其他会话的 agent 看到消息中的 `shr-xxxxxx` 自动调用工具读取,询问"有哪些分享"时自动列出 |
-| 聊天气泡标签 | `conversation.chat.turnTail` 骑手:某轮用户消息含 `shr-*` 时,该轮尾部渲染显眼胶囊标签(🔗 会话分享 + ID + 标题/备注) |
+| 消息内胶囊芯片 | `patches/dsh-client-ui-conversation-sharechip.patch`:官方 `projectUserText` 增加 `shr-*` token 识别,消息气泡内渲染为主题色胶囊芯片(与 `/路径`、`@提及` 同管道,附 hover 标题) |
 | 读分享工具卡片 | `tool.call.toolview` keyed `read_shared_session`:agent 读取时工具卡片替换为专属样式(分享ID徽标 + 标题 + 摘要节选 + 展开/收起的"共N条·实时摘要"页脚) |
 | 摘要层读取范围 | 最近 N 条用户/助手消息文本(默认 20,上限 100),系统注入消息(AGENTS.md/文件变更等)自动剔除只报数量,单条超 1500 字截断 |
 | 管理页 | 设置 → 会话分享:复制 ID、预览摘要、取消分享,8 秒轮询刷新 |
@@ -32,10 +32,13 @@ dsh-session-share/
 
 ## 依赖与联动
 
-- **UI 补丁**(必需):菜单入口由 `patches/dsh-client-ui-workspace-share.patch` 提供 ——
-  给 `dsh-client-ui-workspace` 的会话行菜单加"分享会话"项,点击分发 `window` 事件
-  `sshp:share-session`(携带 sessionId 与标题),本插件客户端监听该事件弹窗。
-  补丁经 `scripts/reapply-dsh-mods.sh` 管理,升级后一键重放。
+- **UI 补丁**(部分必需):
+  - 菜单入口 `patches/dsh-client-ui-workspace-share.patch`(必需):给
+    `dsh-client-ui-workspace` 的会话行菜单加"分享会话"项,点击分发 `window` 事件
+    `sshp:share-session`(携带 sessionId 与标题),本插件客户端监听该事件弹窗;
+  - 消息内芯片 `patches/dsh-client-ui-conversation-sharechip.patch`(可选):
+    `shr-*` 分享ID在用户消息气泡内渲染为胶囊芯片(官方 `projectUserText` 增加 share 分支)。
+  两份补丁均经 `scripts/reapply-dsh-mods.sh` 管理(sharechip 排在 ui-conversation 主补丁之后),升级后一键重放。
 - **服务依赖**:host 半区 inject `sessionQuery`(读任意会话标题与日志)、
   `tools`(注册模型工具)、`webServer`(自有 `/sshp/*` JSON 路由)。
 
