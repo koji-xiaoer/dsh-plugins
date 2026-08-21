@@ -40,11 +40,32 @@
  		function projectUserText(text, sessionLabels) {
  			const ranges = [];
  			for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
-@@ -8187,18 +8220,12 @@
+@@ -8169,14 +8202,14 @@
+ 				});
+ 			}
+ 			// session-share chip: shr-xxxxxx 分享ID 渲染为胶囊芯片(与 /路径、@提及 同机制)
+-			const shareRe = /(^|\s)(shr-[a-z0-9]{4,})/giu;
++			const shareRe = /\bshr-[a-z0-9]{4,}/giu;
+ 			let sm;
+ 			while ((sm = shareRe.exec(text)) !== null) {
+-				const tokenStart = sm.index + (sm[1]?.length ?? 0);
++				const tokenStart = sm.index;
+ 				ranges.push({
+ 					start: tokenStart,
+-					end: tokenStart + sm[2].length,
+-					label: sm[2],
++					end: tokenStart + sm[0].length,
++					label: sm[0],
+ 					kind: "share"
+ 				});
+ 			}
+@@ -8186,19 +8219,13 @@
+ 			for (const range of ranges) {
  				if (range.start < cursor) continue;
  				const { start: tokenStart, end, label, kind } = range;
- 				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
+-				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
 -				const isShare = kind === "share";
++				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: text.slice(cursor, tokenStart) }, cursor));
  				const referenceKind = kind === "session" ? "session" : label.startsWith("@") ? label.endsWith("/") ? "folder" : "file" : void 0;
  				const displayLabel = referenceKind === void 0 ? label : referenceKind === "session" ? label.slice(1) : label.slice(1).replace(/^"|"$/gu, "").split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1);
 -				parts.push((0, react_jsx_runtime.jsxs)("span", {
@@ -61,3 +82,12 @@
  					children: [referenceKind !== void 0 && (0, react_jsx_runtime.jsx)(ReferenceIcon, {
  						kind: referenceKind,
  						size: 16,
+@@ -8208,7 +8235,7 @@
+ 				cursor = end;
+ 			}
+ 			if (parts.length === 0) return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text });
+-			if (cursor < text.length) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor) }, cursor));
++			if (cursor < text.length) parts.push((0, react_jsx_runtime.jsx)("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: text.slice(cursor) }, cursor));
+ 			return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: parts });
+ 		}
+ 		/** Right-aligned bubble shared by user and steering rows. */
