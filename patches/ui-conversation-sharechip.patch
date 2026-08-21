@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-@@ -8139,6 +8139,38 @@
+@@ -8139,6 +8139,39 @@
  		* scan as the composer, minus the lexicon: sent tokens were validated at
  		* compose time, so shape alone decorates).
  		*/
@@ -32,14 +32,15 @@
 +					color: "var(--dsw-alias-label-primary)",
 +					fontSize: "13px",
 +					lineHeight: "18px"
-+				}
-+			}, shown);
++				},
++				children: shown
++			});
 +		}
 +
  		function projectUserText(text, sessionLabels) {
  			const ranges = [];
  			for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
-@@ -8187,18 +8219,12 @@
+@@ -8187,18 +8220,12 @@
  				if (range.start < cursor) continue;
  				const { start: tokenStart, end, label, kind } = range;
  				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
