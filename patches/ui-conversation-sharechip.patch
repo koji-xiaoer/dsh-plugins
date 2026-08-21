@@ -1,41 +1,19 @@
 --- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-@@ -8168,6 +8168,18 @@
- 					kind: "plain"
- 				});
- 			}
-+			// session-share chip: shr-xxxxxx 分享ID 渲染为胶囊芯片(与 /路径、@提及 同机制)
-+			const shareRe = /(^|\s)(shr-[a-z0-9]{4,})/giu;
-+			let sm;
-+			while ((sm = shareRe.exec(text)) !== null) {
-+				const tokenStart = sm.index + (sm[1]?.length ?? 0);
-+				ranges.push({
-+					start: tokenStart,
-+					end: tokenStart + sm[2].length,
-+					label: sm[2],
-+					kind: "share"
-+				});
-+			}
- 			ranges.sort((a, b) => a.start - b.start || (a.kind === b.kind ? b.end - a.end : a.kind === "session" ? -1 : 1));
- 			const parts = [];
- 			let cursor = 0;
-@@ -8175,12 +8187,18 @@
- 				if (range.start < cursor) continue;
- 				const { start: tokenStart, end, label, kind } = range;
- 				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
-+				const isShare = kind === "share";
- 				const referenceKind = kind === "session" ? "session" : label.startsWith("@") ? label.endsWith("/") ? "folder" : "file" : void 0;
- 				const displayLabel = referenceKind === void 0 ? label : referenceKind === "session" ? label.slice(1) : label.slice(1).replace(/^"|"$/gu, "").split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1);
- 				parts.push((0, react_jsx_runtime.jsxs)("span", {
- 					className: MessageItem_module_css_default.refChip,
--					"data-ref-chip": referenceKind ?? "skill",
-+					"data-ref-chip": isShare ? "share" : (referenceKind ?? "skill"),
+@@ -8195,9 +8195,13 @@
+ 					"data-ref-chip": isShare ? "share" : (referenceKind ?? "skill"),
  					title: label,
-+					style: isShare ? {
-+						border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent)",
-+						background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent)",
-+						color: "var(--dsw-alias-state-business-primary)"
-+					} : void 0,
+ 					style: isShare ? {
+-						border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent)",
+-						background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent)",
+-						color: "var(--dsw-alias-state-business-primary)"
++						borderRadius: "999px",
++						padding: "1px 8px",
++						border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent)",
++						background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent)",
++						color: "var(--dsw-alias-label-primary)",
++						fontSize: "13px",
++						lineHeight: "18px"
+ 					} : void 0,
  					children: [referenceKind !== void 0 && (0, react_jsx_runtime.jsx)(ReferenceIcon, {
  						kind: referenceKind,
- 						size: 16,
