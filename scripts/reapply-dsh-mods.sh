@@ -42,6 +42,7 @@ readonly PATCHES=(
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/host.schema.js.orig-balance|hostBalanceValueSchema|dsh-host-schema.patch"
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js.orig-balance|hostBalanceValueSchema|dsh-fetch-client.patch"
   "node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js|node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js.orig-notify|dshNotify|dsh-client-runtime-notify.patch"
+  "node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js|node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.orig.js|sshp:share-session|dsh-client-ui-workspace-share.patch"
 )
 
 apply_one() {

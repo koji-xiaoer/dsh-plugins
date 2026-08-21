@@ -1,0 +1,56 @@
+--- node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js
++++ node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js
+@@ -709,6 +709,25 @@
+ 					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})
+ 				},
+ 				{
++					id: "share",
++					label: t("menu.share"),
++					icon: (0, react_jsx_runtime.jsxs)("svg", {
++						viewBox: "0 0 24 24",
++						width: 16,
++						height: 16,
++						fill: "none",
++						stroke: "currentColor",
++						strokeWidth: 2,
++						strokeLinecap: "round",
++						strokeLinejoin: "round",
++						children: [
++							(0, react_jsx_runtime.jsx)("path", { d: "M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" }),
++							(0, react_jsx_runtime.jsx)("path", { d: "M12 3v13" }),
++							(0, react_jsx_runtime.jsx)("path", { d: "m7 8 5-5 5 5" })
++						]
++					})
++				},
++				{
+ 					id: "archive",
+ 					label: t("menu.archiveSession"),
+ 					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })
+@@ -766,6 +785,11 @@
+ 									if (id === "rename") onRename(node.id, row.title);
+ 									if (id === "fork") onFork(node.id);
+ 									if (id === "archive") onArchive(node.id);
++									if (id === "share") {
++										try {
++											window.dispatchEvent(new CustomEvent("sshp:share-session", { detail: { sessionId: node.id, title } }));
++										} catch {}
++									}
+ 								},
+ 								portal: true,
+ 								closeOnPointerLeave: true,
+@@ -2251,6 +2275,7 @@
+ 			"delete.desc": "将把“{name}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。",
+ 			"delete.pending": "正在删除工作区…",
+ 			"menu.fork": "分叉会话",
++			"menu.share": "分享会话",
+ 			"menu.archiveSession": "归档会话",
+ 			"sessions.count.one": "{n} 个会话",
+ 			"sessions.count.other": "{n} 个会话",
+@@ -2316,6 +2341,7 @@
+ 			"delete.desc": "This removes “{name}” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.",
+ 			"delete.pending": "Deleting workspace…",
+ 			"menu.fork": "Fork session",
++			"menu.share": "Share session",
+ 			"menu.archiveSession": "Archive session",
+ 			"sessions.count.one": "{n} session",
+ 			"sessions.count.other": "{n} sessions",

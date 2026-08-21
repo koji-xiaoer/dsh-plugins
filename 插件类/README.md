@@ -32,10 +32,13 @@
 | `tokm-1` | Token 用量统计 | pkg-14 v2（运行中） | `tokenUsageByModel` 投影注册 + composer.dock 用量行（样式令牌化） |
 | `imgr-3` | 粘贴图片转文字 | pkg-4（运行中） | `agent/pre-step` 拦截替换 image 块 → GLM 识别，内容寻址缓存 |
 | `cost-6` | 费用预估与账单明细 | pkg-16 v6（运行中） | Host 折叠引擎（cost-session/cost-all/cost-config）+ 费用行/总账单/货币卡/价格卡 |
+| `sshp-1` | 会话分享 | pkg-3（运行中，已静态化） | 分享ID 登记 + 发布对话框（shell.overlay）+ 管理页 + `read_shared_session` 工具；**静态版见 `dsh-session-share/`** |
 | `dsh-mods-enhanced` | 增强功能静态化常驻包 | 1.0.0 | **非动态插件**：5 个动态插件合并为 profile 静态插件，随 dsh web 启动自动加载 |
+| `dsh-session-share` | 会话分享静态化常驻包 | 1.0.0 | **非动态插件**：sshp-1 的常驻版（自有 `/sshp/*` 路由 + 工具），配套 `patches/dsh-client-ui-workspace-share.patch` 菜单入口 |
+| `dsh-model-select-provider-label` | 模型选择器增强 | 1.0.0 | **非动态插件**：触发按钮显示 提供商·模型·推理等级，级联面板 |
 
-> 注：`dsh-mods-enhanced` 是静态化常驻包（`~/.dsh/profiles/web/plugins/`），不是动态插件；
-> 它合并了 baln-4/sntf-5/tokm-1/imgr-3/cost-6 五个动态插件的全部能力，随服务启动自动生效。
+> 注：`dsh-mods-enhanced` / `dsh-session-share` / `dsh-model-select-provider-label` 是静态化常驻包
+> （`~/.dsh/profiles/web/plugins/`），不是动态插件；随服务启动自动生效。
 
 ## 效果预览
 

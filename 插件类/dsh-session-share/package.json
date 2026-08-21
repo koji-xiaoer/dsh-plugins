@@ -1,0 +1,24 @@
+{
+  "name": "dsh-session-share",
+  "version": "1.0.0",
+  "description": "会话分享(常驻):左侧会话行 ⋯ 菜单分享会话得到分享ID,其他会话经模型工具 read_shared_session 或设置页读取其实时最近对话摘要",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "license": "MIT"
+}
