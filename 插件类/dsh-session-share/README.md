@@ -11,8 +11,9 @@
 | 能力 | 说明 |
 |---|---|
 | 会话行菜单入口 | 左侧会话行"⋯"菜单新增"分享会话"(位于"分叉会话"下方),点击弹出发布对话框 |
-| 发布对话框 | 显示会话标题 + 备注输入(可选);已分享的会话再次打开显示分享ID并变为"保存并保持分享" |
+| 发布对话框 | 显示会话标题 + 备注输入(可选);已分享的会话再次打开显示分享ID并变为"保存并保持分享";发布成功后**自动复制分享ID到剪贴板**并弹出成功卡片(剪贴板不可用时兜底展示可手选的 ID) |
 | 模型工具 `read_shared_session` | 其他会话的 agent 调用即可列出/读取分享;返回格式化的最近消息文本摘要 |
+| 分享ID 自动识别 | 注册 `systemPrompt` 指引(order 110):其他会话的 agent 看到消息中的 `shr-xxxxxx` 自动调用工具读取,询问"有哪些分享"时自动列出 |
 | 摘要层读取范围 | 最近 N 条用户/助手消息文本(默认 20,上限 100),系统注入消息(AGENTS.md/文件变更等)自动剔除只报数量,单条超 1500 字截断 |
 | 管理页 | 设置 → 会话分享:复制 ID、预览摘要、取消分享,8 秒轮询刷新 |
 | 实时性 | 读取的是读取时刻的实时状态,会话继续对话后摘要随之更新 |
@@ -23,8 +24,8 @@
 dsh-session-share/
 ├── package.json   # 包声明(dsh.client 平台 web)
 └── lib/
-    ├── index.js   # host 半区:分享登记表 + /sshp/* HTTP 路由 + read_shared_session 工具
-    └── client.js  # client 半区:发布对话框(shell.overlay)+ 管理页(settings.section)
+    ├── index.js   # host 半区:分享登记表 + /sshp/* HTTP 路由 + read_shared_session 工具 + systemPrompt 识别指引
+    └── client.js  # client 半区:发布对话框(shell.overlay,自动复制ID)+ 管理页(settings.section)
 ```
 
 ## 依赖与联动

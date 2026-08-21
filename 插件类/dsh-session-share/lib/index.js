@@ -177,6 +177,16 @@ export default {
 			return readShare(args.shareId, args.limit)
 		})
 
+		// 提示词规则:其他会话的 agent 看到分享ID自动调用工具(工具指引惯例 order 100-199)
+		const systemPrompt = ctx.get('systemPrompt')
+		if (systemPrompt !== undefined) {
+			ctx.effect(() => systemPrompt.section({
+				name: 'session-share-tool-guidance',
+				order: 110,
+				text: '跨会话分享:当用户消息中出现形如 shr-xxxxxx 的分享ID时,调用 read_shared_session 工具并传入 shareId 读取对应会话的最近消息摘要;当用户询问有哪些已分享的会话时,不带参数调用该工具列出列表。不要把分享ID当作普通文本忽略。'
+			}), 'session-share prompt section')
+		}
+
 		// 模型工具:其他会话的 agent 由此读取分享摘要
 		ctx.effect(() => tools.register({
 			name: 'read_shared_session',

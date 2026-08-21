@@ -34,6 +34,8 @@ window.__ModuleLoader__.load({
 			const note = noteState[0], setNote = noteState[1];
 			const sharedState = React.useState(null);
 			const sharedInfo = sharedState[0], setShared = sharedState[1];
+			const publishedState = React.useState(null);
+			const published = publishedState[0], setPublished = publishedState[1];
 			React.useEffect(() => {
 				const onShare = (event) => {
 					try {
@@ -42,6 +44,7 @@ window.__ModuleLoader__.load({
 						setTarget({ sessionId: detail.sessionId, title: typeof detail.title === "string" ? detail.title : "" });
 						setNote("");
 						setShared(null);
+						setPublished(null);
 						rpc("/sshp/get", { sessionId: detail.sessionId }).then((r) => {
 							if (r !== null && typeof r === "object" && r.ok === true && r.shared === true) { setShared(r); setNote(typeof r.note === "string" ? r.note : "") }
 						}).catch(() => {});
@@ -51,8 +54,26 @@ window.__ModuleLoader__.load({
 				return () => window.removeEventListener("sshp:share-session", onShare);
 			}, []);
 			if (target === null) return null;
-			const close = () => setTarget(null);
-			const publish = async () => { try { await rpc("/sshp/publish", { sessionId: target.sessionId, note: note }) } catch {} setTarget(null) };
+			const close = () => { setTarget(null); setPublished(null) };
+			const publish = async () => {
+				let result = null;
+				try { result = await rpc("/sshp/publish", { sessionId: target.sessionId, note: note }) } catch {}
+				if (result !== null && typeof result === "object" && result.ok === true && typeof result.shareId === "string") {
+					let copied = false;
+					try { await navigator.clipboard.writeText(result.shareId); copied = true } catch {}
+					setPublished({ shareId: result.shareId, copied });
+					setTimeout(() => { setTarget(null); setPublished(null) }, 2600);
+				} else {
+					setTarget(null);
+				}
+			};
+			if (published !== null) {
+				const doneCard = React.createElement("div", { className: "sshp-card", onClick: (e) => e.stopPropagation() },
+					React.createElement("div", { className: "sshp-card-title" }, sharedInfo !== null ? "分享已更新" : "发布成功"),
+					React.createElement("div", { className: "sshp-card-desc" }, published.copied ? "分享ID已自动复制到剪贴板,直接去其他会话粘贴即可。" : "剪贴板不可用,请手动选中复制下方ID:"),
+					React.createElement("input", { className: "sshp-input sshp-mono", readOnly: true, value: published.shareId, onFocus: (e) => { if (e.target && e.target.select) e.target.select() } }));
+				return React.createElement("div", { className: "sshp-backdrop", onClick: close }, doneCard);
+			}
 			const card = React.createElement("div", { className: "sshp-card", onClick: (e) => e.stopPropagation() },
 				React.createElement("div", { className: "sshp-card-title" }, sharedInfo !== null ? "更新分享" : "分享会话"),
 				React.createElement("div", { className: "sshp-card-desc" },
