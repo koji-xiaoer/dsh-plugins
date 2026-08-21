@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
 +++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
-@@ -484,7 +484,116 @@
+@@ -485,7 +485,116 @@
  const sessionHistoryRequestSchema = z$1.object({
  	sessionId: sessionIdSchema,
  	beforeSeq: z$1.number().int().nonnegative().optional(),
@@ -118,7 +118,7 @@
  });
  /** Complete provider/model selection. */
  const modelSelectionSchema = z$1.object({
-@@ -2040,6 +2226,288 @@
+@@ -1995,6 +2104,302 @@
  	* @returns the attached session, or the inspected detached header and events.
  	* @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
  	*/
@@ -385,6 +385,20 @@
 +	/** 会话 → 父会话(header.parentSession,跨请求持久;"" 表示无父)。供派生去重使用。 */
 +	const parentOfCache = /* @__PURE__ */ new Map();
 +	/**
++	* [billing-refresh-fix] 会话"活动信号",作为费用折叠缓存失效键:
++	* 优先取投影 asOfSeq(每条已提交事件都会推进,包括回合内 assistant/usage
++	* 事件),取不到时退化到摘要 updatedAt(仅用户发消息才推进)。修复:一个
++	* 用户回合内 agent 连续产生的 LLM 调用费用不再冻结在"最后一条用户消息"
++	* 时刻,而是随 5 秒轮询实时刷新。
++	* @param s - 会话摘要(可无)。
++	* @returns 单调递增的活动信号。
++	*/
++	function costActivityKey(s) {
++		if (s === void 0) return 0;
++		const seq = s.projections?.asOfSeq;
++		return typeof seq === "number" ? seq : (s.updatedAt ?? 0);
++	}
++	/**
 +	* 提取会话事件流中的 usage 序列(与 foldCostEvents 同一消费口径:assistant/message 最终样本)。
 +	* @returns 逐笔 [input, read, write, output] 数组。
 +	*/
@@ -407,7 +421,7 @@
  	async function historySourceFor(sessionId) {
  		const attached = ctx.sessions.get(sessionId);
  		if (attached !== void 0) return {
-@@ -2633,12 +3101,16 @@
+@@ -2564,12 +2969,16 @@
  				});
  			},
  			async history(request) {
@@ -426,15 +440,18 @@
  					return ok(request, {
  						events: page.events,
  						hasMore: page.hasMore,
-@@ -2657,6 +3129,249 @@
+@@ -2588,6 +2997,256 @@
  					});
  				}
  			},
 +			/**
 +			* [billing-fix] 全会话费用聚合:服务端按请求时刻逐笔折叠(与客户端明细
 +			* 弹窗同一口径),总账单页面一行一次请求拿全量,不再由浏览器逐会话拉
-+			* 明细折叠。折叠结果按 (updatedAt, 价表) 缓存,会话无新增活动或价表
-+			* 未变时直接复用,5 秒轮询零成本。
++			* 明细折叠。折叠结果按 (活动信号 asOfSeq, 价表) 缓存,会话无新增事件或
++			* 价表未变时直接复用,5 秒轮询零成本。
++			* [billing-refresh-fix] 失效键从 updatedAt(仅用户发消息推进)改为投影
++			* asOfSeq(每条已提交事件推进):回合内 agent 连续调用的费用实时刷新,
++			* 不再冻结在"最后一条用户消息"时刻。
 +			* [billing-dedup] 派生会话去重:fork 会话继承父会话全部 usage 记录,
 +			* 折叠时跳过与父会话 usage 序列逐笔相同的前缀,只计 fork 后的新增
 +			* 调用(父会话被删除时父序列不可得,派生会话恢复全额计费,避免漏记)。
@@ -498,8 +515,9 @@
 +					for (const s of targets) {
 +						if (s.origin === "subagent") {
 +							// [billing-backend] 子代理:折叠后归集到父行 subCost,不入 items。
++							// [billing-refresh-fix] 缓存失效键用活动信号(asOfSeq),回合内新调用即时失效。
 +							const cached = costCache.get(s.sessionId);
-+							if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey) {
++							if (cached !== void 0 && cached.at === costActivityKey(s) && cached.pk === priceKey) {
 +								const parentId = parentOfCache.get(s.sessionId);
 +								if (typeof parentId === "string" && parentId !== "") {
 +									const prev = subCostByParent.get(parentId) ?? { cost: 0, count: 0 };
@@ -531,8 +549,10 @@
 +						}
 +						const cached = costCache.get(s.sessionId);
 +						// [billing-dedup] 派生会话的折叠依赖父会话存在性,不参与缓存命中
-+						// (父被删除后必须立即恢复全额计费);非派生会话照常按 updatedAt 缓存。
-+						if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey && cached.extra === void 0) {
++						// (父被删除后必须立即恢复全额计费);非派生会话照常按活动信号缓存。
++						// [billing-refresh-fix] 失效键 = costActivityKey(投影 asOfSeq),回合内
++						// 新 usage 事件即时推进,长回合费用不再冻结在"最后一条用户消息"时刻。
++						if (cached !== void 0 && cached.at === costActivityKey(s) && cached.pk === priceKey && cached.extra === void 0) {
 +							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...cached.fold });
 +							continue;
 +						}
@@ -559,7 +579,7 @@
 +							// 非派生会话 extra 必须为 undefined(缓存命中分支以 extra === void 0 判定,
 +							// 空对象会让缓存永不命中,每次请求都全量重算)。
 +							const extra = derivedFrom === void 0 ? void 0 : { derivedFrom, dedupSkipped: skip };
-+							costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold, extra });
++							costCache.set(s.sessionId, { at: costActivityKey(s), pk: priceKey, fold, extra });
 +							items.push({
 +								sessionId: s.sessionId,
 +								updatedAt: s.updatedAt,
@@ -623,7 +643,7 @@
 +			/**
 +			* [billing-backend] 单会话费用明细:逐轮汇总 + 逐笔流水,全部后端折叠
 +			* (按请求时刻计价、北京峰谷、设置自定义价、派生去重),前端只渲染。
-+			* 明细折叠按 (updatedAt, 价表) 缓存。
++			* 明细折叠按 (活动信号 asOfSeq, 价表) 缓存。
 +			*/
 +			async costDetail(request, signal) {
 +				const { sessionId } = request.payload;
@@ -634,7 +654,8 @@
 +					const summaries = await listVisibleSessionSummaries(signal);
 +					const summary = summaries.find((s) => s.sessionId === sessionId);
 +					const cached = detailCache.get(sessionId);
-+					if (cached !== void 0 && cached.at === (summary?.updatedAt ?? 0) && cached.pk === priceKey) {
++					// [billing-refresh-fix] 失效键用活动信号(asOfSeq),回合内新调用即时失效。
++					if (cached !== void 0 && cached.at === costActivityKey(summary) && cached.pk === priceKey) {
 +						return ok(request, cached.value);
 +					}
 +					const source = await historySourceFor(sessionId);
@@ -658,7 +679,7 @@
 +						...derivedFrom === void 0 ? {} : { derivedFrom, dedupSkipped: skip },
 +						...detail
 +					};
-+					detailCache.set(sessionId, { at: summary?.updatedAt ?? 0, pk: priceKey, value });
++					detailCache.set(sessionId, { at: costActivityKey(summary), pk: priceKey, value });
 +					return ok(request, value);
 +				} catch (error) {
 +					if (error instanceof ApiRemoteSessionNotFound) return err(request, {
@@ -676,7 +697,7 @@
  			async models(request) {
  				const { sessionId } = request.payload;
  				const found = await agentFor(sessionId);
-@@ -3204,6 +3919,38 @@
+@@ -3136,6 +3795,38 @@
  					canOpenPath: canOpenPaths()
  				}));
  			},
@@ -715,8 +736,8 @@
  			async pickDirectory(request, signal) {
  				const capability = ctx.directoryPicker.capability();
  				if (capability.kind !== "native") return err(request, {
-@@ -4219,6 +4966,16 @@
- 	attachedSessions: z$1.number().int().nonnegative(),
+@@ -4146,6 +4837,16 @@
+ 	home: z$1.string(),
  	canOpenPath: z$1.boolean()
  });
 +/** host.balance request payload (empty object literal). */
@@ -732,7 +753,7 @@
  /** host.pickDirectory request payload (empty object literal). */
  const hostPickDirectoryRequestSchema = z$1.object({});
  /** host.pickDirectory response value; null means the user cancelled. */
-@@ -4683,6 +5440,14 @@
+@@ -4610,6 +5311,14 @@
  		schema: sessionHistoryRequestSchema,
  		invoke: (api, r) => api.sessions.history(r)
  	},
@@ -747,7 +768,7 @@
  	"session.models": {
  		schema: sessionModelsRequestSchema,
  		invoke: (api, r) => api.sessions.models(r)
-@@ -4735,6 +5500,10 @@
+@@ -4662,6 +5371,10 @@
  		schema: hostDescribeRequestSchema,
  		invoke: (api, r) => api.host.describe(r)
  	},
@@ -758,7 +779,7 @@
  	"host.pickDirectory": {
  		schema: hostPickDirectoryRequestSchema,
  		invoke: (api, r, signal) => api.host.pickDirectory(r, signal)
-@@ -5256,6 +6025,7 @@
+@@ -5183,6 +5896,7 @@
  	"subagent.prompt": subagentPromptValueSchema,
  	"subagent.interrupt": subagentInterruptValueSchema,
  	"host.describe": hostDescribeValueSchema,
@@ -766,7 +787,7 @@
  	"host.pickDirectory": hostPickDirectoryValueSchema,
  	"host.listDirectory": hostListDirectoryValueSchema,
  	"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -5472,6 +6242,7 @@
+@@ -5399,6 +6113,7 @@
  	};
  	host = {
  		describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
@@ -774,7 +795,7 @@
  		pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
  		listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
  		createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),
-@@ -5642,6 +6413,13 @@
+@@ -5569,6 +6284,13 @@
  		this.events = api.events;
  		this.downloads = api.downloads;
  		this.respond = api.respond.bind(api);
@@ -788,4 +809,3 @@
  	}
  };
  //#endregion
-

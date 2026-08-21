@@ -35,7 +35,7 @@ MODE="${1:-apply}"
 # 目标文件内的"原始备份"是各类备份留下的官方原版（paste 补丁的 .orig.js、我的 .bak-cost.js）
 readonly PATCHES=(
   "node_modules/@deepseek-ai/dsh-token-meter/lib/index.js|node_modules/@deepseek-ai/dsh-token-meter/lib/index.bak-cost.js|tokenUsageByModelProjectionDefinition|dsh-token-meter.patch"
-  "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.orig.js|billing-backend|dsh-host-apiproxy.patch"
+  "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js.orig|billing-backend|dsh-host-apiproxy.patch"
   "node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js|node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.orig.js|ESTIMATED_PRICES|dsh-client-ui-conversation.patch"
   "node_modules/@deepseek-ai/dsh-client-connection/lib/client.js|node_modules/@deepseek-ai/dsh-client-connection/lib/client.js.orig-balance|hostBalanceValueSchema|dsh-client-connection.patch"
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/sessions.schema.js.orig-usageonly|usageOnly|dsh-session-schema.patch"

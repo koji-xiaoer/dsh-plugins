@@ -88,6 +88,8 @@ bash scripts/install.sh
 > 注意:补丁**锁定 dsh 0.1.1-rc.1**。0.1.1-rc.1 起原生支持多模态（`deepseek-v4-flash-vision-exp`），
 > 粘贴图片可走原生视觉；本套补丁已**移除图片转文字中继与对话折叠功能**（不再维护）。
 
+**2026-08-21 修复（费用实时刷新）**：账单/会话统计栏的费用此前在单个回合内不刷新——折叠缓存失效键用 `updatedAt`（仅用户发消息才推进），回合内 agent 连续产生的 LLM 调用费用会冻结在"最后一条用户消息"时刻（表现为"本次对话没有价格"）。已改为投影 `asOfSeq`（每条已提交事件推进）作为失效键（`session.cost` / `session.costDetail` 共 5 处），费用随 5 秒轮询实时更新；并修正 `scripts/reapply-dsh-mods.sh` 中 apiproxy 补丁原始备份文件名笔误（`index.orig.js` → `index.js.orig`）。
+
 ## 效果预览
 
 > 截图取自本机实际运行画面,金额/会话标题等均已替换为**演示数据**或打码,不包含真实敏感信息。
