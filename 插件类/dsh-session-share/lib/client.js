@@ -12,7 +12,7 @@ window.__ModuleLoader__.load({
 			const tag = document.createElement("style");
 			tag.dataset.plugin = "dsh-session-share";
 			tag.dataset.pluginCss = CSS_TAG;
-			tag.textContent = ".sshp-page{font-size:12px;color:var(--dsw-alias-label-secondary)}.sshp-desc{margin-bottom:10px;line-height:1.6}.sshp-table{width:100%;border-collapse:collapse;font-size:12px}.sshp-table th,.sshp-table td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}.sshp-table th{color:var(--dsw-alias-label-tertiary);font-weight:500}.sshp-empty{color:var(--dsw-alias-label-tertiary);padding:14px 0}.sshp-preview{margin:4px 0 14px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;max-height:340px;overflow:auto}.sshp-preview-title{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px}.sshp-msg{margin-bottom:10px;font-size:12px;line-height:1.55}.sshp-msg-tag{font-weight:600;color:var(--dsw-alias-label-secondary);margin-right:6px}.sshp-msg-text{white-space:pre-wrap;color:var(--dsw-alias-label-primary);word-break:break-word}.sshp-mono{font-family:var(--ds-font-family-code,monospace);font-variant-numeric:tabular-nums}.sshp-foot{margin-top:12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.6}.sshp-btn{background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}.sshp-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}.sshp-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:1000}.sshp-card{width:420px;max-width:calc(100vw - 48px);border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.18)}.sshp-card-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px}.sshp-card-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.5;margin-bottom:12px;word-break:break-all}.sshp-input{width:100%;box-sizing:border-box;background:none;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-primary);margin-bottom:14px}.sshp-actions{display:flex;justify-content:flex-end;gap:8px}.sshp-primary{color:#fff;background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}.sshp-badge-ok{font-size:11px;color:var(--dsw-alias-state-business-primary)}";
+			tag.textContent = ".sshp-page{font-size:12px;color:var(--dsw-alias-label-secondary)}.sshp-desc{margin-bottom:10px;line-height:1.6}.sshp-table{width:100%;border-collapse:collapse;font-size:12px}.sshp-table th,.sshp-table td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}.sshp-table th{color:var(--dsw-alias-label-tertiary);font-weight:500}.sshp-empty{color:var(--dsw-alias-label-tertiary);padding:14px 0}.sshp-preview{margin:4px 0 14px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;max-height:340px;overflow:auto}.sshp-preview-title{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:8px}.sshp-msg{margin-bottom:10px;font-size:12px;line-height:1.55}.sshp-msg-tag{font-weight:600;color:var(--dsw-alias-label-secondary);margin-right:6px}.sshp-msg-text{white-space:pre-wrap;color:var(--dsw-alias-label-primary);word-break:break-word}.sshp-mono{font-family:var(--ds-font-family-code,monospace);font-variant-numeric:tabular-nums}.sshp-foot{margin-top:12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.6}.sshp-btn{background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}.sshp-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}.sshp-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:1000}.sshp-card{width:420px;max-width:calc(100vw - 48px);border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.18)}.sshp-card-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px}.sshp-card-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.5;margin-bottom:12px;word-break:break-all}.sshp-input{width:100%;box-sizing:border-box;background:none;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-primary);margin-bottom:14px}.sshp-actions{display:flex;justify-content:flex-end;gap:8px}.sshp-primary{color:#fff;background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}.sshp-badge-ok{font-size:11px;color:var(--dsw-alias-state-business-primary)}.sshp-turnbadge{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;margin:2px 0;border-radius:12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);font-size:12px;color:var(--dsw-alias-label-secondary);width:fit-content;max-width:100%}.sshp-turnchip{font-weight:600;color:var(--dsw-alias-state-business-primary);flex:none}.sshp-turnid{font-family:var(--ds-font-family-code,monospace);font-variant-numeric:tabular-nums;background:var(--dsw-alias-interactive-bg-hover);padding:1px 8px;border-radius:999px;flex:none}.sshp-turntitle{color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.sshp-toolview{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:10px 12px;margin:4px 0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform)}.sshp-toolhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sshp-expand{cursor:pointer;color:var(--dsw-alias-state-business-primary)}.sshp-expand:hover{opacity:.8}";
 			document.head.appendChild(tag);
 		}
 
@@ -176,6 +176,71 @@ window.__ModuleLoader__.load({
 			return React.createElement("div", { className: "sshp-page" }, desc, table, foot);
 		}
 
+		// ================= 组件:chat 轮次标签(turnTail,用户消息含 shr-* 时显示) =================
+		function selectShareInTurn(owner) {
+			try {
+				const turn = owner && owner.turn;
+				if (turn === null || typeof turn !== "object" || turn.data === undefined || typeof turn.data.get === "undefined" || typeof turn.data.forEach !== "function") return null;
+				let text = "";
+				turn.data.forEach((value) => {
+					if (value !== null && typeof value === "object" && Array.isArray(value.content)) {
+						for (const block of value.content) {
+							if (block !== null && typeof block === "object" && block.type === "text" && typeof block.text === "string") text += block.text + "\n";
+						}
+					}
+				});
+				const match = text.match(/shr-[a-z0-9]{4,}/i);
+				return match === null ? null : { shareId: match[0] };
+			} catch { return null }
+		}
+
+		function ShareTurnBadge(props) {
+			const matched = props.matched;
+			const [info, setInfo] = React.useState(null);
+			React.useEffect(() => {
+				let alive = true;
+				rpc("/sshp/read", { shareId: matched.shareId, limit: 3 }).then((r) => { if (alive) setInfo(r) }).catch(() => {});
+				return () => { alive = false };
+			}, [matched.shareId]);
+			const ok = info !== null && typeof info === "object" && info.ok === true;
+			return React.createElement("div", { className: "sshp-turnbadge" },
+				React.createElement("span", { className: "sshp-turnchip" }, "🔗 会话分享"),
+				React.createElement("span", { className: "sshp-turnid" }, matched.shareId),
+				React.createElement("span", { className: "sshp-turntitle" },
+					ok ? "《" + (info.title || "无标题") + "》" + (info.note ? " · " + info.note : "") : "识别为分享会话引用，摘要加载中…"));
+		}
+
+		// ================= 组件:读分享工具卡片(tool.call.toolview keyed) =================
+		function ShareReadCard(props) {
+			let shareId = "";
+			try { const args = JSON.parse(String(props.block && props.block.arguments || "{}")); if (typeof args.shareId === "string") shareId = args.shareId } catch {}
+			const [data, setData] = React.useState(null);
+			const [open, setOpen] = React.useState(false);
+			React.useEffect(() => {
+				if (shareId === "") return;
+				let alive = true;
+				rpc("/sshp/read", { shareId, limit: 5 }).then((r) => { if (alive) setData(r) }).catch(() => {});
+				return () => { alive = false };
+			}, [shareId]);
+			if (shareId === "") return React.createElement("div", { className: "sshp-toolview" }, React.createElement("span", null, "read_shared_session"));
+			const ok = data !== null && typeof data === "object" && data.ok === true;
+			const kids = [React.createElement("div", { className: "sshp-toolhead", key: "h" },
+				React.createElement("span", { className: "sshp-turnchip" }, "🔗 会话分享"),
+				React.createElement("span", { className: "sshp-turnid" }, shareId),
+				React.createElement("span", { className: "sshp-turntitle" }, ok ? "《" + (data.title || "无标题") + "》 最近 " + data.messages.length + "/" + data.totalMessages + " 条" : (data === null ? "摘要加载中…" : "读取失败"))),
+				React.createElement("span", { className: "sshp-foot", key: "f" }, "实时摘要 · 系统注入 " + (ok ? String(data.skippedSynthetic) + " 条未列入" : "—"))];
+			if (ok && data.note) kids.splice(1, 0, React.createElement("div", { className: "sshp-foot", key: "n" }, "备注: " + data.note));
+			if (ok) {
+				const excerpt = data.messages.slice(0, open ? data.messages.length : 2).map((m, i) =>
+					React.createElement("div", { className: "sshp-msg", key: "m" + i },
+						React.createElement("span", { className: "sshp-msg-tag" }, m.role === "user" ? "[用户]" : "[助手#" + String(m.turn) + "]"),
+						React.createElement("span", { className: "sshp-msg-text" }, m.text)));
+				kids.push(React.createElement("div", { key: "body" }, excerpt,
+					data.messages.length > 2 ? React.createElement("span", { className: "sshp-expand", onClick: () => setOpen(!open) }, open ? "收起 ▲" : "展开全部 " + data.messages.length + " 条 ▼") : null));
+			}
+			return React.createElement("div", { className: "sshp-toolview" }, kids);
+		}
+
 		// ================= 插件入口 =================
 		function apply(ctx) {
 			const slots = ctx.get("slots");
@@ -188,6 +253,14 @@ window.__ModuleLoader__.load({
 				{ name: "settings.section", id: "session-share", order: 40, label: "会话分享" },
 				() => React.createElement(ShareManager, null)
 			));
+			slots.inject("conversation.chat.turnTail", () => slots.register({
+				name: "conversation.chat.turnTail",
+				select: selectShareInTurn
+			}, ShareTurnBadge));
+			slots.inject("tool.call.toolview", () => slots.register({
+				name: "tool.call.toolview",
+				key: "read_shared_session"
+			}, ShareReadCard));
 		}
 		exports.apply = apply;
 		exports.inject = ["slots"];
