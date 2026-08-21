@@ -78,14 +78,15 @@ bash scripts/install.sh
 
 脚本会自动完成:
 
-1. 安装 `@deepseek-ai/dsh@0.1.0-rc.6`
-2. 把 `patches/ui-conversation.patch` 应用到 ui-conversation（费用预估 / 账单 / 货币 / 通知 / 余额）
-3. 把 `dsh-mods-enhanced` 插件装进 web profile（图片转文字 / 完成提醒 / token 投影）
+1. 安装 `@deepseek-ai/dsh@0.1.1-rc.1`
+2. 应用 `patches/ui-conversation.patch` + `patches/dsh-host-apiproxy-0.1.1.patch`（费用预估 / 账单 / 货币 / 通知 / 余额；见 `scripts/reapply-dsh-mods.sh`）
+3. 把 `dsh-mods-enhanced` 插件装进 web profile（完成提醒 / token 投影）
 4. 配置 `package.json` + `cordis.patch.yml`
 
-装完重启 `dsh web --port 3080` 即可。图片转文字需配置 `ZHIPU_API_KEY`，余额查询需 `DEEPSEEK_API_KEY`。
+装完重启 `dsh web --port 3080` 即可。余额查询需 `DEEPSEEK_API_KEY`。
 
-> 注意:ui-conversation 补丁**锁定 dsh 0.1.0-rc.6**。dsh 升级后 client.js 会变,补丁可能失效,需重新生成。
+> 注意:补丁**锁定 dsh 0.1.1-rc.1**。0.1.1-rc.1 起原生支持多模态（`deepseek-v4-flash-vision-exp`），
+> 粘贴图片可走原生视觉；本套补丁已**移除图片转文字中继与对话折叠功能**（不再维护）。
 
 ## 效果预览
 

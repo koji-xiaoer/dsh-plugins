@@ -12,7 +12,7 @@
 # ============================================================
 set -euo pipefail
 
-DSH_VERSION="0.1.0-rc.6"
+DSH_VERSION="0.1.1-rc.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_FILE="$REPO_DIR/patches/ui-conversation.patch"

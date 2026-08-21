@@ -129,7 +129,7 @@ fi
 # 版本不一致时,先做接口级兼容性检查——本插件依赖的全部
 # 关键符号都在目标 dsh 安装中可用才允许继续,否则中止。
 # ============================================================
-REQUIRED_DSH_VERSION="${REQUIRED_DSH_VERSION:-0.1.0-rc.6}"
+REQUIRED_DSH_VERSION="${REQUIRED_DSH_VERSION:-0.1.1-rc.1}"
 
 # 定位全局 dsh 包根(兼容 npm/pnpm 布局;可用 DSH_PKG 环境变量显式指定)
 locate_dsh_pkg() {

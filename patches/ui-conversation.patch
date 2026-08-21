@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-@@ -2357,6 +2357,206 @@
+@@ -2486,6 +2486,206 @@
  				this.busyEnter.set(section.busyEnter);
  			}
  		};
@@ -207,7 +207,7 @@
  		//#endregion
  		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
  		function r(e) {
-@@ -2787,6 +2987,80 @@
+@@ -2949,6 +3149,80 @@
  			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
  		}
  		/**
@@ -288,7 +288,7 @@
  		* Approximate context occupancy, using the TUI's integer rounding and upper
  		* clamp. The numerator is `projectedTokens` — the provider sample carried
  		* forward over the surface's movement since — so compaction shows immediately
-@@ -2807,9 +3081,11 @@
+@@ -2969,9 +3243,11 @@
  				contextWindow: pressure.contextWindow
  			};
  		}
@@ -301,7 +301,7 @@
  			const projected = useProjection("sessionStats");
  			const stats = (0, react.useMemo)(() => projected ?? deriveStats(settledNodes), [projected, settledNodes]);
  			const groups = [];
-@@ -2835,6 +3111,52 @@
+@@ -2997,6 +3273,52 @@
  					output: formatTokens(usage.outputTokens)
  				}));
  			}
@@ -354,7 +354,7 @@
  			const line = groups.join(" | ");
  			const rootRef = (0, react.useRef)(null);
  			const [truncated, setTruncated] = (0, react.useState)(false);
-@@ -2853,11 +3175,20 @@
+@@ -3015,11 +3337,20 @@
  				};
  			}, [line]);
  			if (groups.length === 0) return null;
@@ -377,7 +377,7 @@
  				children: (0, react_jsx_runtime.jsx)("div", {
  					ref: rootRef,
  					className: StatsLine_module_css_default.root,
-@@ -3058,6 +3389,1636 @@
+@@ -3220,6 +3551,1636 @@
  			});
  		}
  		//#endregion
@@ -2014,16 +2014,16 @@
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
  		const css$18 = ".Sh0Q9G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Sh0Q9G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Sh0Q9G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Sh0Q9G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Sh0Q9G_triggerIcon{flex:none;display:inline-flex}.Sh0Q9G_triggerIcon svg{width:14px;height:14px}.Sh0Q9G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Sh0Q9G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Sh0Q9G_trigger:has(.Sh0Q9G_triggerIcon) .Sh0Q9G_triggerLabel{display:none}}.Sh0Q9G_chevronOpen{transform:rotate(180deg)}";
  		const tagId$18 = "@deepseek-ai/dsh-client-ui-conversation/PermissionSelect.module.css";
-@@ -3325,7 +5286,7 @@
- 			textRefs: [],
- 			hint: null
- 		};
+@@ -3566,7 +5527,7 @@
+ 				insertedLength: 0
+ 			} : void 0;
+ 		}
 -		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
 +		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, api, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
  			const input = useInput((s) => s);
  			const notice = useNotices((s) => s);
  			const lexicon = useLexicon((s) => s);
-@@ -3859,6 +5820,13 @@
+@@ -4108,6 +6069,13 @@
  											useProjection,
  											t
  										}),
@@ -2037,7 +2037,7 @@
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5983,854 @@
+@@ -4258,6 +6226,854 @@
  				})]
  			});
  		}
@@ -2891,206 +2891,8 @@
 +		}
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
- 		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +7722,10 @@
- 			const rest = [];
- 			for (const block of content) {
- 				const b = block;
--				if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
--				else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
-+				if (b.type === "text" && typeof b.text === "string") {
-+					/* [image-relay-patch] hidden 标记的文本块（图片的 GLM 描述）不渲染 */
-+					if (b.hidden !== true) texts.push(b.text);
-+				} else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
- 				else rest.push(block);
- 			}
- 			return {
-@@ -5170,7 +7988,7 @@
- 		});
- 		//#endregion
- 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
--		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}";
-+		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}.Md3f7G_foldGroup{flex-direction:column;gap:16px;min-width:0;display:flex}.Md3f7G_foldBar{box-sizing:border-box;width:100%;height:30px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:var(--dsw-alias-interactive-bg-hover);border:none;border-radius:8px;align-items:center;gap:6px;padding:0 10px;font-size:12px;line-height:20px;display:flex}.Md3f7G_foldBar:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-secondary)}.Md3f7G_foldChevron{flex:none;display:inline-flex;transition:transform .12s}.Md3f7G_foldChevronOpen{transform:rotate(180deg)}.Md3f7G_foldText{min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.Md3f7G_foldBody{flex-direction:column;gap:16px;min-width:0;display:flex}";
- 		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
- 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
- 			const tag = document.createElement("style");
-@@ -5185,6 +8003,12 @@
- 			"callRow": "Md3f7G_callRow",
- 			"turnStatusClock": "Md3f7G_turnStatusClock",
- 			"flowItem": "Md3f7G_flowItem",
-+			"foldBar": "Md3f7G_foldBar",
-+			"foldBody": "Md3f7G_foldBody",
-+			"foldChevron": "Md3f7G_foldChevron",
-+			"foldChevronOpen": "Md3f7G_foldChevronOpen",
-+			"foldGroup": "Md3f7G_foldGroup",
-+			"foldText": "Md3f7G_foldText",
- 			"scroll": "Md3f7G_scroll",
- 			"hint": "Md3f7G_hint",
- 			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +8064,21 @@
- 			});
- 		});
- 		//#endregion
-+		/** Collapsed-turn preview: the final reply's text blocks only (reasoning stays folded). */
-+		const FoldReplyPreview = (0, react.memo)(function FoldReplyPreview({ nodeKey, useSession, loadImage, fileMentions, t }) {
-+			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
-+			if (node === void 0 || node.kind !== "assistant-step") return null;
-+			const data = node.data;
-+			const blocks = data.blocks.filter((block) => block.kind !== "reasoning");
-+			return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {
-+				blocks,
-+				streaming: false,
-+				interrupted: data.status === "interrupted",
-+				loadImage,
-+				mentions: void 0,
-+				t
-+			});
-+		});
- 		//#region lib/types/client/chat/ChatView.js
- 		/** Active column host when present; otherwise the view-local scroller. */
- 		function scrollerOf(from) {
-@@ -5329,6 +8168,38 @@
- 		* The chat view slot entry: pure component over the composed props; each
- 		* ordered business Node crosses the keyed renderer seat.
- 		*/
-+		/** Node kinds folded as level-2 content beneath the preceding level-1 node. */
-+		const FOLD_LEVEL2_KINDS = new Set(["assistant-step", "tool-call", "tool-result", "model-retry", "turn-tail", "turn-error", "turn-max-tokens"]);
-+		/** Split the flat node order into fold groups anchored at level-1 nodes (user messages & friends). */
-+		function foldGroups(order, nodeStore) {
-+			const groups = [];
-+			let current = null;
-+			for (const key of order) {
-+				const kind = nodeStore.get(key)?.kind;
-+				if (kind !== void 0 && !FOLD_LEVEL2_KINDS.has(kind)) {
-+					current = { key, children: [] };
-+					groups.push(current);
-+				} else if (current === null) {
-+					groups.push({ key: null, children: [key] });
-+				} else {
-+					current.children.push(key);
-+				}
-+			}
-+			return groups;
-+		}
-+		/** Collapsed-group summary line: "回复 2 · 工具调用 5 · 结果 5" (the previewed final reply is excluded). */
-+		function foldSummary(children, nodeStore, t, previewKey) {
-+			const counts = new Map();
-+			for (const key of children) {
-+				if (key === previewKey) continue;
-+				const kind = nodeStore.get(key)?.kind;
-+				if (kind !== void 0) counts.set(kind, (counts.get(kind) ?? 0) + 1);
-+			}
-+			const labelOf = (kind) => kind === "assistant-step" ? t("chat.fold.reply") : kind === "tool-call" ? t("chat.fold.tool") : kind === "tool-result" ? t("chat.fold.result") : kind === "model-retry" ? t("chat.fold.retry") : kind === "turn-tail" ? t("chat.fold.tail") : kind === "turn-error" || kind === "turn-max-tokens" ? t("chat.fold.error") : kind;
-+			const parts = [];
-+			for (const [kind, count] of counts) parts.push(`${labelOf(kind)} ${count}`);
-+			return parts.length > 0 ? parts.join(" · ") : "";
-+		}
- 		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
- 			const order = useSession((s) => s.chat.order);
- 			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +8235,18 @@
- 			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
- 			const lastKey = order.at(-1) ?? null;
- 			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
-+			const groups = (0, react.useMemo)(() => foldGroups(order, nodeStore), [order, nodeStore]);
-+			const [foldOpenKeys, setFoldOpenKeys] = (0, react.useState)(() => new Set());
-+			const lastGroupKey = groups.length > 0 ? groups[groups.length - 1].key : null;
-+			const isFoldOpen = (group) => group.key === null || group.key === lastGroupKey || foldOpenKeys.has(group.key);
-+			const toggleFold = (key) => {
-+				setFoldOpenKeys((prev) => {
-+					const next = new Set(prev);
-+					if (next.has(key)) next.delete(key);
-+					else next.add(key);
-+					return next;
-+				});
-+			};
- 			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
- 			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
- 			const toBottom = (el) => {
-@@ -5501,6 +8384,61 @@
- 				}
- 				loadOlder();
- 			};
-+			const renderSeat = (nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
-+				nodeKey,
-+				useSession,
-+				selectedCallId,
-+				cwd,
-+				openFile,
-+				inspectCall,
-+				forkAt,
-+				loadImage,
-+				fileMentions,
-+				renderSlot,
-+				t
-+			}, nodeKey);
-+			const lastReplyKey = (children) => {
-+				let last = null;
-+				for (const key of children) {
-+					if (nodeStore.get(key)?.kind === "assistant-step") last = key;
-+				}
-+				return last;
-+			};
-+			const renderFoldGroup = (group) => {
-+				const open = isFoldOpen(group);
-+				const previewKey = open ? null : lastReplyKey(group.children);
-+				return (0, react_jsx_runtime.jsxs)("div", {
-+					className: ChatView_module_css_default.flowItem,
-+					"data-chat-fold-group": group.key,
-+					children: [renderSeat(group.key), group.children.length > 0 && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
-+						children: [(0, react_jsx_runtime.jsx)("button", {
-+							type: "button",
-+							className: ChatView_module_css_default.foldBar,
-+							"aria-expanded": open,
-+							"aria-label": t(open ? "chat.fold.toggleClose" : "chat.fold.toggleOpen"),
-+							onClick: () => {
-+								toggleFold(group.key);
-+							},
-+							children: [(0, react_jsx_runtime.jsx)("span", {
-+								className: clsx(ChatView_module_css_default.foldChevron, open && ChatView_module_css_default.foldChevronOpen),
-+								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
-+							}), (0, react_jsx_runtime.jsx)("span", {
-+								className: ChatView_module_css_default.foldText,
-+								children: foldSummary(group.children, nodeStore, t, previewKey)
-+							})]
-+						}), open ? (0, react_jsx_runtime.jsx)("div", {
-+							className: ChatView_module_css_default.foldBody,
-+							children: group.children.map(renderSeat)
-+						}) : previewKey !== null && (0, react_jsx_runtime.jsx)(FoldReplyPreview, {
-+							nodeKey: previewKey,
-+							useSession,
-+							loadImage,
-+							fileMentions,
-+							t
-+						})]
-+					})]
-+				}, group.key);
-+			};
- 			return (0, react_jsx_runtime.jsx)("div", {
- 				className: ChatView_module_css_default.root,
- 				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +8469,7 @@
- 									children: loadingOlder ? t("loading") : t("chat.loadOlder")
- 								})
- 							}),
--							order.map((nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
--								nodeKey,
--								useSession,
--								selectedCallId,
--								cwd,
--								openFile,
--								inspectCall,
--								forkAt,
--								loadImage,
--								fileMentions,
--								renderSlot,
--								t
--							}, nodeKey)),
-+							groups.map((group) => group.key === null ? group.children.map(renderSeat) : renderFoldGroup(group)),
- 							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
- 								startTime: runningTurnStart,
- 								t
-@@ -5827,10 +8753,128 @@
+ 		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_referenceSummary{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-state-business-primary);white-space:nowrap;vertical-align:baseline;align-items:center;gap:4px;margin:0 2px;font-weight:500;display:inline-flex}.gdEzaW_refIcon{flex:none}";
+@@ -6185,6 +9001,124 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -3150,10 +2952,6 @@
 +			"billing.back": "返回账单",
 +			"billing.balance": "账户余额 {balance}",
 +			"cost.write": "缓存写入",
- 			"settings.enter.title": "繁忙时 Enter 键行为",
- 			"settings.enter.description": "仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为",
- 			"settings.enter.queue": "排队发送",
- 			"settings.enter.steer": "插话发送",
 +			"settings.cost.title": "费用预估",
 +			"settings.cost.description": "在会话统计栏显示预估费用；价格留空则用内置价（8/17 后按北京时区自动峰谷价）",
 +			"settings.cost.enable": "显示预估费用",
@@ -3216,25 +3014,10 @@
 +			"settings.notify.customTooLarge": "文件超过 1 MB，请换一个更短的音频",
 +			"settings.notify.customReadError": "读取音频文件失败，请重试",
 +			"settings.notify.titleDesc": "网页标题实时显示运行状态",
- 			"access.confirm.title": "确认启用 Full access？",
- 			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
- 			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8901,14 @@
- 			"chat.loadError": "历史加载失败：{message}（{code}）",
- 			"chat.loadOlder": "加载更早",
- 			"chat.toBottom": "回到底部",
-+			"chat.fold.reply": "回复",
-+			"chat.fold.tool": "工具调用",
-+			"chat.fold.result": "结果",
-+			"chat.fold.retry": "重试",
-+			"chat.fold.tail": "收尾",
-+			"chat.fold.error": "错误",
-+			"chat.fold.toggleOpen": "展开本轮详情",
-+			"chat.fold.toggleClose": "收起本轮详情",
- 			"message.extraBlock": "附加内容块",
- 			"message.contextInjection": "上下文注入",
- 			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +9044,127 @@
+ 			"settings.enter.title": "繁忙时 Enter 键行为",
+ 			"settings.enter.description": "仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为",
+ 			"settings.enter.queue": "排队发送",
+@@ -6361,6 +9295,123 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -3293,10 +3076,6 @@
 +			"billing.back": "Back to statement",
 +			"billing.balance": "Account balance {balance}",
 +			"cost.write": "Cache write",
- 			"settings.enter.title": "Enter behavior while busy",
- 			"settings.enter.description": "Busy only; Cmd/Ctrl+Enter uses the other behavior",
- 			"settings.enter.queue": "Queue",
- 			"settings.enter.steer": "Steer",
 +			"settings.cost.title": "Cost estimate",
 +			"settings.cost.description": "Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak after Aug 17, Beijing time)",
 +			"settings.cost.enable": "Show estimated cost",
@@ -3359,25 +3138,10 @@
 +			"settings.notify.customTooLarge": "File exceeds 1 MB — pick a shorter clip",
 +			"settings.notify.customReadError": "Could not read the audio file — please retry",
 +			"settings.notify.titleDesc": "Live session status in the page title",
- 			"access.confirm.title": "Enable Full access?",
- 			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
- 			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +9191,14 @@
- 			"chat.loadError": "Failed to load history: {message} ({code})",
- 			"chat.loadOlder": "Load earlier",
- 			"chat.toBottom": "Back to bottom",
-+			"chat.fold.reply": "reply",
-+			"chat.fold.tool": "tool call",
-+			"chat.fold.result": "result",
-+			"chat.fold.retry": "retry",
-+			"chat.fold.tail": "tail",
-+			"chat.fold.error": "error",
-+			"chat.fold.toggleOpen": "Expand this turn",
-+			"chat.fold.toggleClose": "Collapse this turn",
- 			"message.extraBlock": "Extra content block",
- 			"message.contextInjection": "Context injection",
- 			"message.contextRecall": "Session recall",
-@@ -9460,6 +12637,7 @@
+ 			"settings.enter.title": "Enter behavior while busy",
+ 			"settings.enter.description": "Busy only; Cmd/Ctrl+Enter uses the other behavior",
+ 			"settings.enter.queue": "Queue",
+@@ -9913,6 +12964,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -3385,7 +3149,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +12659,70 @@
+@@ -9934,6 +12986,70 @@
  					}
  				})
  			}, EnterBehaviorRow));
@@ -3456,7 +3220,7 @@
  			const chatScrollPositions = /* @__PURE__ */ new Map();
  			const viewTabs = () => {
  				const tabs = [];
-@@ -9636,6 +12878,8 @@
+@@ -10101,6 +13217,8 @@
  				},
  				inject: (sessionId) => {
  					if (sessionId === void 0) return {
@@ -3465,7 +3229,7 @@
  						keyboard: void 0,
  						addImages: void 0,
  						removeImage: void 0,
-@@ -9654,6 +12898,8 @@
+@@ -10119,6 +13237,8 @@
  					const shell = inputHub.shell(sessionId);
  					const inputTriggers = inputHub.inputTriggers(sessionId);
  					return {
@@ -3474,7 +3238,7 @@
  						keyboard: shell,
  						addImages: (files) => {
  							try {
-@@ -9763,7 +13009,9 @@
+@@ -10235,7 +13355,9 @@
  				name: "conversation.composer.dock",
  				id: "stats",
  				order: 0,

@@ -1,7 +1,11 @@
 # dsh-mods-enhanced — 增强功能静态化常驻包(替代 5 个动态插件)
 
-将 baln-4 / sntf-5 / tokm-1 / imgr-3 / cost-6 五个动态插件**合并**为一个
+将 baln-4 / sntf-5 / tokm-1 / cost-6 四个动态插件**合并**为一个
 **profile 静态插件**,随 dsh web 服务启动自动加载,不再需要 cordis_define/cordis_run。
+
+> 2026-08 适配 dsh 0.1.1-rc.1:**imgr-3 粘贴图片转文字已移除**(0.1.1 起官方
+> 原生支持多模态,`deepseek-v4-flash-vision-exp` 可直接看图);对话**折叠功能**
+> 也已随 0.1.1 补丁重建一并舍弃。
 
 ## 效果预览
 
@@ -14,7 +18,6 @@
 | 费用预估设置卡 | ![价格卡](../../docs/screenshots/3-cost-settings.png) |
 | 账单货币卡 | ![货币卡](../../docs/screenshots/4-currency.png) |
 | 会话完成提醒设置卡 | ![提醒卡](../../docs/screenshots/5-notify.png) |
-| 粘贴图片转文字 | ![图片转文字](../../docs/screenshots/6-imgr.png) |
 | 账户余额(打码) | ![余额](../../docs/screenshots/7-balance.png) |
 
 ## 常驻原理
@@ -32,15 +35,15 @@
 | 动态插件 | 静态包内 |
 |---|---|
 | tokm-1 投影注册 | constructor: sessionProjections.register |
-| imgr-3 pre-step 拦截 | constructor: ctx.on('agent/pre-step') |
 | sntf-5 agent/status | constructor: ctx.on('agent/status') + Remote notifyState |
 | baln-4 balance | Remote balance |
 | cost-6 折叠引擎 | Remote costSession/costAll/costConfig/currencyRates + usageByModel |
 
 ## 生效方式
 
-- **一键安装(推荐)**: `bash scripts/install.sh`(仓库根目录)——自动安装 dsh 0.1.0-rc.6、
-  把本包装入 `~/.dsh/profiles/web/plugins/`、应用 `patches/ui-conversation.patch` 并配置
+- **一键安装(推荐)**: `bash scripts/install.sh`(仓库根目录)——自动安装 dsh 0.1.1-rc.1、
+  把本包装入 `~/.dsh/profiles/web/plugins/`、应用 `patches/ui-conversation.patch` +
+  `patches/dsh-host-apiproxy-0.1.1.patch`(或 `scripts/reapply-dsh-mods.sh`)并配置
   `package.json` + `cordis.patch.yml`;
 - 手动:把本目录复制到 `~/.dsh/profiles/web/plugins/dsh-mods-enhanced/`,按
   `web/package.json` dependencies + `cordis.patch.yml` insert 配置。
