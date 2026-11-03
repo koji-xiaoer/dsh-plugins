@@ -48,6 +48,22 @@
 > 指向替代目录（当前：`sshp-1` → `dsh-session-share/`、`sntf-5` → `dsh-session-notify/`、
 > `cost-6` → `dsh-cost-ledger/`）。
 
+## 当前客户端(profile `web`)已安装插件清单
+
+以 `~/.dsh/profiles/web/package.json` 与 `cordis.patch.yml` 为准(2026-11-03 核对):
+
+| 安装形态 | 名称 | 版本 | 仓库源码 | 说明 |
+|---|---|---|---|---|
+| profile 插件(bundle) | `dsh-deepseek-status` | 0.2.0 | `插件类/dsh-deepseek-status/` | 服务状态胶囊 + 悬浮面板(status.deepseek.com) |
+| profile 插件 | `dsh-cost-ledger` | 0.1.0 | `插件类/dsh-cost-ledger/` | 费用账本(替代 cost-6):折叠引擎 + 悬浮面板 + 搜索/抓取按次计费 + 检索内容 token 拆分 |
+| profile 插件 | `dsh-session-notify` | 1.0.0 | `插件类/dsh-session-notify/` | 会话完成提醒(替代 sntf-5),不依赖补丁 |
+| profile 插件 | `dsh-session-share` | 1.0.0 | `插件类/dsh-session-share/` | 会话分享(替代 sshp-1),配套 `patches/dsh-client-ui-workspace-share.patch` 与 `patches/ui-conversation-sharechip.patch` |
+| profile 插件 | `dsh-model-select-provider-label` | 1.0.0 | `插件类/dsh-model-select-provider-label/` | 模型选择器显示 提供商·模型·推理等级(级联面板) |
+| 第三方依赖(file:) | `@deepseek-ai/dsh-tool-see-image` | 0.2.0 | **不入库** | npm 包「看图工具」(作者 gugu123a):给纯文本模型加 `see_image` 能力;按本目录「只提交自己写的插件」原则不归档第三方源码,升级走 npm/file 依赖 |
+
+> 其余 `@deepseek-ai/*` 是 dsh 自带 bundle,不属于本仓库。
+> `增强主页类/dsh-mods/` 与 `patches/` 是**补丁形态**的界面增强,单独维护,不在此清单内。
+
 ## 效果预览
 
 各插件的界面效果见 `docs/screenshots/`（均为演示数据，金额/会话标题已替换或打码）：
