@@ -1,5 +1,10 @@
 # cost-6 — 费用预估与账单明细(Cost & Billing)
 
+> **已弃用(2026-11-03)**:由静态常驻包 [`插件类/dsh-cost-ledger/`](../dsh-cost-ledger/) 取代。
+> 本目录仅归档 v6 动态插件源码(开发过程记录),不再维护;新版把折叠/计价拆成 `lib/` 引擎,
+> 增加了闲时/费用悬浮面板、搜索/抓取按次计费(¥5/1000 成功请求)与检索内容 token 拆分。
+> 仍需要动态插件形态时可参考本目录历史提交。
+
 从 dsh-mods 补丁功能 **费用预估与账单明细**(`dsh-client-ui-conversation.patch`,197KB 最大补丁)迁移的动态 Cordis 插件。
 
 - **pluginId**: `cost-6`(idPrefix `cost`),迁移时间 2026-08-18

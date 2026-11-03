@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DeepSeek Status Capsule",
+    "description": "Shows DeepSeek service health from status.deepseek.com beside the composer's off-peak and billing capsules, with a hover panel listing per-component 30-day history, uptime and recent events."
+  }
+}

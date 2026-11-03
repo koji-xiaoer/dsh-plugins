@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DeepSeek 状态胶囊",
+    "description": "在输入框工具条的空闲时段胶囊与对话计费胶囊旁,显示 status.deepseek.com 的 DeepSeek 服务状态;悬停展开面板,含各组件近 30 天逐日状态、可用率与最近事件。"
+  }
+}

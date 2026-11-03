@@ -1,0 +1,33 @@
+{
+  "name": "dsh-cost-ledger",
+  "version": "0.1.0",
+  "description": "费用账本:按会话/轮次精确计算模型费用(缓存命中/未命中/写入三档价格)、价格表版本化变更记录、按费用产生日采集并保存汇率、设置面板总消耗与每日消耗柱状图",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "cost",
+    "billing"
+  ],
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "license": "MIT"
+}

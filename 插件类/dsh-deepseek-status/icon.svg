@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="DeepSeek status capsule">
+  <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="#4D6BFE"/>
+  <path d="M4.6 12.4h3.1l1.7-4 2.8 7.6 1.9-3.6h3.3" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="19" cy="12.4" r="1.5" fill="#FFFFFF" opacity="0.9"/>
+</svg>

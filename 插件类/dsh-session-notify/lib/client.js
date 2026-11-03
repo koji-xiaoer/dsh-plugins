@@ -1,0 +1,283 @@
+window.__ModuleLoader__.load({
+	id: "dsh-session-notify",
+	factory: (require) => {
+		var module = { exports: {} };
+		var exports = module.exports;
+		const React = require("react");
+
+		// ================= CSS 注入(产品模式,data-plugin-css 判重) =================
+		const CSS_TAG = "dsh-session-notify/ui.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(CSS_TAG) + "]") === null) {
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "dsh-session-notify";
+			tag.dataset.pluginCss = CSS_TAG;
+			tag.textContent = '.sntf-toast{position:fixed;right:20px;bottom:76px;z-index:9999;display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:12px;background:rgba(24,26,31,.92);color:#e8ecf2;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.35);animation:sntf-in .18s ease-out}.sntf-toast-icon{color:#3ecf8e;font-weight:700}@keyframes sntf-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' + '.sntf-card{border-bottom:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding:16px 0;display:flex}.sntf-row{align-items:center;gap:12px;display:flex}.sntf-head{flex:1;flex-direction:column;gap:2px;min-width:0;display:flex}.sntf-title{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.sntf-desc{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.sntf-switch{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;flex:none;font-size:13px;line-height:20px;display:inline-flex;cursor:pointer;user-select:none}.sntf-switch input{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}.sntf-switch span{position:relative;background:var(--dsw-alias-border-l3);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;width:34px;height:20px;flex:none;transition:background .18s ease,border-color .18s ease}.sntf-switch span::after{content:"";position:absolute;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);border-radius:50%;top:2px;left:2px;width:14px;height:14px;transition:transform .18s cubic-bezier(.4,0,.2,1)}.sntf-switch input:checked+span{background:var(--dsw-alias-state-business-primary);border-color:transparent}.sntf-switch input:checked+span::after{transform:translateX(14px)}.sntf-switch input:focus-visible+span{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.sntf-sub{background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;flex-direction:column;gap:10px;padding:10px;display:flex}.sntf-segs{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;gap:2px;padding:2px;display:flex;min-width:0}.sntf-seg{background:none;border:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer;flex:1;justify-content:center;gap:6px;font:inherit;font-size:12px;line-height:24px;padding:0 10px;display:flex;transition:color .15s ease,background .15s ease}.sntf-seg:hover{color:var(--dsw-alias-label-secondary)}.sntf-seg-active{background:var(--dsw-alias-bg-module-platform);box-shadow:0 1px 2px rgba(0,0,0,.12);color:var(--dsw-alias-label-primary);font-weight:600}.sntf-preview{background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;font-size:12px;line-height:20px;padding:2px 12px;transition:color .15s ease,background .15s ease}.sntf-preview:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.sntf-slider-row{align-items:center;gap:10px;display:flex}.sntf-slider-row span:first-child{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap;width:32px}.sntf-slider-row input[type=range]{flex:1;accent-color:var(--dsw-alias-state-business-primary);min-width:0}.sntf-pct{color:var(--dsw-alias-label-secondary);font-family:var(--ds-font-family-code);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;min-width:36px;text-align:right}.sntf-custom{flex-direction:column;gap:6px;display:flex}.sntf-pick{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);border-radius:10px;box-sizing:border-box;color:var(--dsw-alias-state-business-primary);cursor:pointer;justify-content:center;gap:8px;font-size:13px;line-height:20px;font-weight:500;min-height:44px;padding:10px 16px;display:flex;transition:border-color .15s ease,background .15s ease,color .15s ease}.sntf-pick:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}.sntf-remove{background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:11px;line-height:18px;padding:2px 10px;align-self:flex-start;transition:color .15s ease,background .15s ease}.sntf-remove:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.sntf-fnote{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.sntf-divider{background:var(--dsw-alias-border-l2);height:1px;margin:2px 0}';
+			document.head.appendChild(tag);
+		}
+
+		// ================= 偏好读写(与 sntf-5 / 原补丁共用 dsh.notify.* 键)=
+		const readPref = (k, def) => { try { const v = (typeof localStorage !== "undefined") ? localStorage.getItem(k) : null; return v === null ? def : v !== "0" } catch { return def } };
+		const writePref = (k, on) => { try { localStorage.setItem(k, on ? "1" : "0") } catch {} };
+		const readSource = () => { try { const s = localStorage.getItem("dsh.notify.sound.source"); return (s === "bell" || s === "custom") ? s : "chime" } catch { return "chime" } };
+		const writeSource = (s) => { try { localStorage.setItem("dsh.notify.sound.source", s) } catch {} };
+		const readVolume = () => { try { const raw = localStorage.getItem("dsh.notify.sound.volume"); if (raw === null || raw === "") return 0.8; const n = Number(raw); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.8 } catch { return 0.8 } };
+		const writeVolume = (v) => { try { localStorage.setItem("dsh.notify.sound.volume", String(v)) } catch {} };
+		const readGain = () => { try { const raw = localStorage.getItem("dsh.notify.sound.gain"); if (raw === null || raw === "") return 1; const n = Number(raw); return Number.isFinite(n) ? Math.min(3, Math.max(1, n)) : 1 } catch { return 1 } };
+		const writeGain = (g) => { try { localStorage.setItem("dsh.notify.sound.gain", String(g)) } catch {} };
+		const readData = () => { try { return localStorage.getItem("dsh.notify.sound.data") } catch { return null } };
+		const writeData = (d) => { try { if (d === null || d === "") localStorage.removeItem("dsh.notify.sound.data"); else localStorage.setItem("dsh.notify.sound.data", d) } catch {} };
+		const readName = () => { try { return localStorage.getItem("dsh.notify.sound.name") || "" } catch { return "" } };
+		const writeName = (n) => { try { if (n === "") localStorage.removeItem("dsh.notify.sound.name"); else localStorage.setItem("dsh.notify.sound.name", n) } catch {} };
+
+		// ================= 声音合成(WebAudio chime/bell + 自定义 dataURL)=
+		let audioCtx = null;
+		const ensureAudio = () => {
+			try {
+				if (typeof window === "undefined" || typeof AudioContext === "undefined") return null;
+				if (audioCtx === null) audioCtx = new AudioContext();
+				if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+				return audioCtx;
+			} catch { return null }
+		};
+		const playTone = (notes, type, peak, level) => {
+			const ac = ensureAudio();
+			if (ac === null || ac.state !== "running") return;
+			const now = ac.currentTime;
+			for (const n of notes) {
+				const freq = n[0], at = n[1], dur = n[2];
+				const osc = ac.createOscillator();
+				const gain = ac.createGain();
+				osc.type = type;
+				osc.frequency.value = freq;
+				gain.gain.setValueAtTime(0.0001, now + at);
+				gain.gain.exponentialRampToValueAtTime(peak * level, now + at + 0.025);
+				gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
+				osc.connect(gain).connect(ac.destination);
+				osc.start(now + at);
+				osc.stop(now + at + dur + 0.05);
+			}
+		};
+		const playChime = (level) => playTone([[659.25, 0, 0.45], [880, 0.28, 0.8]], "sine", 0.12, level);
+		const playBell = (level) => playTone([[880, 0, 0.35], [1318.51, 0.18, 0.55]], "triangle", 0.1, level);
+		const playCustom = (data, level) => {
+			try {
+				const audio = new Audio(data);
+				if (level <= 1) { audio.volume = level; audio.play().catch(() => playChime(level)); return true }
+				const ac = ensureAudio();
+				if (ac === null || ac.state !== "running") { audio.volume = 1; audio.play().catch(() => playChime(level)); return true }
+				try {
+					const src = ac.createMediaElementSource(audio);
+					const g = ac.createGain();
+					g.gain.value = level;
+					src.connect(g).connect(ac.destination);
+					audio.volume = 1;
+					audio.play().catch(() => playChime(level));
+				} catch { audio.volume = 1; audio.play().catch(() => playChime(level)) }
+				return true;
+			} catch { return false }
+		};
+		const playSound = () => {
+			const level = readVolume() * readGain();
+			const source = readSource();
+			if (source === "bell") { playBell(level); return }
+			if (source === "custom") {
+				const data = readData();
+				if (data !== null && data !== "" && playCustom(data, level)) return;
+			}
+			playChime(level);
+		};
+		const playPreview = (source, data, volume, gain) => {
+			const level = volume * gain;
+			if (source === "custom" && data !== null && data !== "" && playCustom(data, level)) return;
+			if (source === "bell") playBell(level); else playChime(level);
+		};
+
+		// ================= 状态轮询(自有 /dsnf/state 路由,同源 fetch)=
+		const STATE_PATH = "/dsnf/state";
+		const fetchState = async (sessionId) => {
+			try {
+				const url = (typeof sessionId === "string" && sessionId !== "")
+					? STATE_PATH + "?sessionId=" + encodeURIComponent(sessionId)
+					: STATE_PATH;
+				const response = await fetch(url, { headers: { accept: "application/json" }, cache: "no-store" });
+				if (!response.ok) return null;
+				const value = await response.json();
+				return value !== null && typeof value === "object" ? value : null;
+			} catch { return null }
+		};
+
+		// ================= 标题文案 =================
+		let baseTitle = null;
+		const getBaseTitle = () => {
+			try {
+				if (typeof document === "undefined") return "DeepSeek Harness";
+				if (baseTitle === null || baseTitle === "") baseTitle = document.title || "DeepSeek Harness";
+				return baseTitle;
+			} catch { return "DeepSeek Harness" }
+		};
+		const isZh = () => { try { return typeof navigator !== "undefined" && typeof navigator.language === "string" && navigator.language.toLowerCase().startsWith("zh") } catch { return true } };
+		const runningLabel = (n) => isZh() ? (n + " 个会话运行中") : (n + " session(s) running");
+		const doneLabel = (n) => isZh() ? (n > 1 ? (n + " 个会话已完成") : "会话已完成") : (n > 1 ? (n + " sessions done") : "Session done");
+
+		// ================= 引擎:header.utilities,渲染 null 或提醒卡 =================
+		let flashUntil = 0;
+		let flashCount = 0;
+		const NotifyEngine = (props) => {
+			const sessionId = props !== null && typeof props === "object" ? props.sessionId : undefined;
+			const [toast, setToast] = React.useState(null);
+			const [flash, setFlash] = React.useState(null);
+			React.useEffect(() => {
+				let alive = true;
+				let lastRunning = false;
+				let lastSeq = null;
+				let blink = false;
+				const tick = async () => {
+					const s = await fetchState(sessionId);
+					if (!alive || s === null) return;
+					const titleOn = readPref("dsh.notify.title", true);
+					const now = Date.now();
+					const seq = typeof s.completedSeq === "number" ? s.completedSeq : 0;
+					const count = typeof s.runningCount === "number" ? s.runningCount : 0;
+					if (s.running === true) {
+						if (titleOn) {
+							blink = !blink;
+							try { document.title = (blink ? "● " : "○ ") + runningLabel(count) + " · " + getBaseTitle() } catch {}
+						}
+					} else if (lastRunning === true && lastSeq !== null && seq > lastSeq) {
+						if (readPref("dsh.notify.sound", true)) playSound();
+						const n = (now < flashUntil) ? flashCount + 1 : 1;
+						flashUntil = now + 8000;
+						flashCount = n;
+						if (titleOn) { try { document.title = "✓ " + doneLabel(n) + " · " + getBaseTitle() } catch {} }
+						setFlash({ until: flashUntil, count: n });
+						setToast({ key: now, text: doneLabel(n) });
+					} else if (count === 0 && now >= flashUntil) {
+						try { if (document.title !== getBaseTitle()) document.title = getBaseTitle() } catch {}
+					}
+					lastRunning = s.running === true;
+					lastSeq = seq;
+				};
+				tick();
+				const handle = setInterval(tick, 800);
+				return () => { alive = false; clearInterval(handle) };
+			}, [sessionId]);
+			React.useEffect(() => {
+				if (flash === null) return;
+				const wait = Math.max(0, flash.until - Date.now());
+				const handle = setTimeout(() => { try { if (document.title !== getBaseTitle()) document.title = getBaseTitle() } catch {} }, wait);
+				return () => clearTimeout(handle);
+			}, [flash]);
+			React.useEffect(() => {
+				if (toast === null) return;
+				const handle = setTimeout(() => setToast(null), 4200);
+				return () => clearTimeout(handle);
+			}, [toast]);
+			if (toast === null) return null;
+			return React.createElement("div", { className: "sntf-toast" },
+				React.createElement("span", { className: "sntf-toast-icon" }, "✓"),
+				React.createElement("span", null, toast.text));
+		};
+
+		// ================= 设置卡:settings.general.item =================
+		const segBtn = (active, onClick, label) => React.createElement("button", {
+			className: "sntf-seg" + (active ? " sntf-seg-active" : ""),
+			onClick
+		}, label);
+
+		const NotifySettings = () => {
+			const [, setTick] = React.useState(0);
+			const rerender = () => setTick((n) => n + 1);
+			const soundOn = readPref("dsh.notify.sound", true);
+			const titleOn = readPref("dsh.notify.title", true);
+			const source = readSource();
+			const volume = readVolume();
+			const gain = readGain();
+			const data = readData();
+			const name = readName();
+			const previewTimer = React.useRef(null);
+			const [pickError, setPickError] = React.useState(null);
+			const schedulePreview = () => {
+				if (previewTimer.current !== null) { clearTimeout(previewTimer.current); previewTimer.current = null }
+				previewTimer.current = setTimeout(() => {
+					previewTimer.current = null;
+					playPreview(readSource(), readData(), readVolume(), readGain());
+				}, 250);
+			};
+			React.useEffect(() => () => { if (previewTimer.current !== null) clearTimeout(previewTimer.current) }, []);
+			const handleFile = (file) => {
+				if (file === null || file === undefined) return;
+				if (file.size > 1024 * 1024) { setPickError("文件超过 1MB 上限"); return }
+				if (typeof FileReader === "undefined") { setPickError("当前环境不支持文件读取"); return }
+				const reader = new FileReader();
+				reader.onload = () => { writeData(String(reader.result)); writeName(file.name); setPickError(null); rerender() };
+				reader.onerror = () => setPickError("文件读取失败");
+				reader.readAsDataURL(file);
+			};
+			const onPick = (e) => { const f = e.target.files && e.target.files[0]; if (f) handleFile(f); e.target.value = "" };
+			const onDrop = (e) => { e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) handleFile(f) };
+			return React.createElement("div", { className: "sntf-card" },
+				React.createElement("div", { className: "sntf-row" },
+					React.createElement("div", { className: "sntf-head" },
+						React.createElement("div", { className: "sntf-title" }, "会话完成提醒"),
+						React.createElement("div", { className: "sntf-desc" }, "会话完成时播放提示音，并在网页标题动态显示运行状态")),
+					React.createElement("label", { className: "sntf-switch" },
+						React.createElement("input", { type: "checkbox", checked: soundOn, onChange: (e) => { writePref("dsh.notify.sound", e.target.checked); rerender() } }),
+						React.createElement("span", null))),
+				soundOn ? React.createElement("div", { className: "sntf-sub" },
+					React.createElement("div", { className: "sntf-segs" },
+						segBtn(source === "chime", () => { writeSource("chime"); rerender() }, "默认提示音"),
+						segBtn(source === "bell", () => { writeSource("bell"); rerender() }, "清脆铃声"),
+						segBtn(source === "custom", () => { writeSource("custom"); rerender() }, "自定义音频")),
+					React.createElement("button", { className: "sntf-preview", onClick: () => playPreview(readSource(), readData(), readVolume(), readGain()) }, "试听"),
+					React.createElement("div", { className: "sntf-slider-row" },
+						React.createElement("span", null, "音量"),
+						React.createElement("input", { type: "range", min: 0, max: 1, step: 0.05, value: volume, onChange: (e) => { writeVolume(Number(e.target.value)); rerender(); schedulePreview() } }),
+						React.createElement("span", { className: "sntf-pct" }, Math.round(volume * 100) + "%")),
+					React.createElement("div", { className: "sntf-slider-row" },
+						React.createElement("span", null, "增益"),
+						React.createElement("input", { type: "range", min: 1, max: 3, step: 0.05, value: gain, onChange: (e) => { writeGain(Number(e.target.value)); rerender(); schedulePreview() } }),
+						React.createElement("span", { className: "sntf-pct" }, Math.round(gain * 100) + "%")),
+					source === "custom" ? React.createElement("div", { className: "sntf-custom" },
+						React.createElement("label", { className: "sntf-pick", onDragOver: (e) => e.preventDefault(), onDrop: onDrop },
+							React.createElement("input", { type: "file", accept: ".mp3,.wav,.ogg,.webm,audio/*", style: { display: "none" }, onChange: onPick }),
+							data !== null ? "已选择: " + (name || "音频") : "选择音频文件"),
+						data !== null ? React.createElement("button", { className: "sntf-remove", onClick: () => { writeData(null); writeName(""); setPickError(null); rerender() } }, "移除") : null,
+						React.createElement("div", { className: "sntf-fnote" }, pickError !== null ? pickError : ((name ? name + " · " : "") + "支持 MP3 / WAV / OGG / WEBM · 建议时长 ≤ 3 秒 · 文件 ≤ 1 MB")))
+					: null)
+				: null,
+				React.createElement("div", { className: "sntf-divider" }),
+				React.createElement("div", { className: "sntf-row" },
+					React.createElement("div", { className: "sntf-head" },
+						React.createElement("div", { className: "sntf-title" }, "动态网页标题"),
+						React.createElement("div", { className: "sntf-desc" }, "运行中闪烁 ●/○，完成闪 ✓")),
+					React.createElement("label", { className: "sntf-switch" },
+						React.createElement("input", { type: "checkbox", checked: titleOn, onChange: (e) => { writePref("dsh.notify.title", e.target.checked); rerender() } }),
+						React.createElement("span", null))));
+		};
+
+		// ================= 插件入口 =================
+		// ================= 插件入口 =================
+		// 挂载序号:同一个包被挂两次(profile 里两条 insert 行 / 0.2.0 启动重写 patch 层时又追加一条)
+		// 或客户端热重载时,每个实例都拿一个**互不相同**的 priority:
+		//  · 不同 priority ⇒ 不会触发 0.2.0 的 "already has an entry with id ..." 硬报错;
+		//  · 遮蔽规则是「优先级最低者渲染」⇒ 后挂载的实例(更低的负数)赢,旧实例自动让位;
+		//  · 用计数器而不是布尔标志,避免热重载后旧标志挡住新实例注册。
+		let mountSeq = 0;
+		function apply(ctx) {
+			const slots = ctx.get("slots");
+			if (slots === undefined) return;
+			const priority = -1 - mountSeq++;
+			slots.inject("settings.general.item", () => slots.register(
+				{ name: "settings.general.item", id: "notify", order: 40, priority },
+				() => React.createElement(NotifySettings, null)
+			));
+			slots.inject("conversation.session.header.utilities", () => slots.register(
+				{ name: "conversation.session.header.utilities", id: "sntf-status", order: 20, priority },
+				(props) => React.createElement(NotifyEngine, { sessionId: props !== null && typeof props === "object" ? props.sessionId : undefined })
+			));
+		}
+		exports.apply = apply;
+		exports.inject = ["slots"];
+		return module.exports;
+	}
+});

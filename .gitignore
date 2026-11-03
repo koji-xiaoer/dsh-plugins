@@ -13,6 +13,9 @@ id_ecdsa*
 secret*.txt
 !scripts/secret-allowlist.txt
 
+# ---- 本地运行副本(仓库副本在 插件类/dsh-deepseek-status/) ----
+status-capsule/
+
 # ---- 系统/编辑器垃圾 ----
 .DS_Store
 Thumbs.db

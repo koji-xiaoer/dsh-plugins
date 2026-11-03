@@ -1,5 +1,9 @@
 # sntf-5 — 会话完成提醒(Session Notify)
 
+> **已弃用(2026-11-03)**:由静态常驻包 [`插件类/dsh-session-notify/`](../dsh-session-notify/) 取代。
+> 本目录仅归档动态插件源码(开发过程记录),不再维护;新版是 bundle 插件,不依赖任何补丁,
+> 自带音色/音量/增益/自定义音频设置卡。
+
 从 dsh-mods 补丁功能 **会话完成提醒**(`dsh-client-runtime-notify.patch` + ui-conversation 的 NotifyRow)迁移的动态 Cordis 插件。
 
 - **pluginId**: `sntf-5`(idPrefix `sntf`),迁移时间 2026-08-18
