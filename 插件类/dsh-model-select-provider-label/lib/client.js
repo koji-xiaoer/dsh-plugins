@@ -570,7 +570,7 @@ window.__ModuleLoader__.load({
 			}, ModelSelectWithProvider));
 		}
 		exports.apply = apply;
-		exports.inject = ["slots", "locale", "sessions", "modelDirectories"];
+		exports.inject = ["slots", "locale", "sessions", "modelDirectories", "remote", "remote.session"];
 		return module.exports;
 	}
 });
