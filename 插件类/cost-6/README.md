@@ -24,11 +24,14 @@
 ## 架构
 
 - **Host 折叠引擎**(替代 usageOnly 补丁的传输路径): `sessionQuery.listSessions/listEvents` 在宿主内折叠,只传聚合 JSON
-  - 价表 ESTIMATED_PRICES(deepseek-v4-flash/pro,current/peak/offpeak)、峰谷判定(北京时区 09-12/14-18,PEAK_PRICE_SINCE 2026-08-17 00:00 北京时间)、按请求时刻计价
+  - 价表 ESTIMATED_PRICES(deepseek-v4-flash / deepseek-v4-flash-vision-exp / deepseek-v4-pro,current / peak / offpeak / **peak2 / offpeak2**)、峰谷判定(工作日北京时区 09-12/14-18,PEAK_PRICE_SINCE 2026-08-17 00:00 北京时间;8/23 00:00 起周六/周日全天统一低谷价、8/22 及以前周末仍按峰谷时段,WEEKEND_OFFPEAK_SINCE)、按请求时刻计价
+  - **[billing-20260910] 分代价档**:2026-09-10 12:00 北京起 Flash 系列降价(空闲 命中 0.02 / 未命中 1 / 输出 4,高峰翻倍;V4-Pro 官方价不变),新增 `peak2`/`offpeak2`;此前时段的调用仍按当时生效的旧档计价(不用新价回溯),`PERIOD_FALLBACK` 保证新档缺表时回退到同代旧档而非 `current`
+  - `cost-session` 额外下发 `periods`(各时段 calls/cost)、`priceMap`(模型×新档单价,锚点取最近工作日以保证峰/谷两档都有值)、逐笔 `calls[].period`,供界面区分"新价档"与"过去时段旧价档"
   - `cost-all`: 全会话费用(含 byModel/byDay/turns/calls),updatedAt 变化才重折叠(缓存)
   - `cost-session`: 单会话明细;`cost-config`: 自定义价格读/写;`currency-rates`: 账单货币汇率
 - **Client v6**:
   - `conversation.composer.dock`(order 0)费用行: 总费用/输入/输出/按模型,展开每轮柱状图(对数刻度、费用降序、12 根/页)
+  - 单会话明细「逐笔明细」表新增**时段**列(平 / 峰旧 / 谷旧 / 峰 / 谷,悬停显示该时段生效单价与时间范围)
   - `settings.section`(id **billing**,order 31)总账单页: 全会话费用表,行展开轮次/逐笔明细(各 10 行)——v6 起与补丁**同 cell 替换**,消除双入口
   - `settings.general.item`(id `cost-estimate`,order 30)价格设置卡: 自定义每模型价格 + 恢复内置价
   - `settings.general.item`(id `billing-currency`,order 32)货币卡: 15 币种/自动汇率/手动覆盖,全界面换算

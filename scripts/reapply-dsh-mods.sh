@@ -44,6 +44,7 @@ readonly PATCHES=(
   "node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js|node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/fetch/client.js.orig-balance|hostBalanceValueSchema|dsh-fetch-client.patch"
   "node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js|node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js.orig-notify|dshNotify|dsh-client-runtime-notify.patch"
   "node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js|node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.orig.js|sshp:share-session|dsh-client-ui-workspace-share.patch"
+  "node_modules/@deepseek-ai/dsh-client-connection/lib/index.js|node_modules/@deepseek-ai/dsh-client-connection/lib/index.js.orig-noauth|[no-auth]|dsh-client-connection-noauth.patch"
 )
 
 apply_one() {
@@ -55,10 +56,27 @@ apply_one() {
   fi
   local patchfile="$PATCH_DIR/$name"
   if [ ! -f "$patchfile" ]; then echo "  !! 缺补丁文件：$patchfile（先 --capture）"; return 1; fi
+  # 先快照:patch 即使失败也会把成功的 hunk(可能带 fuzz)写进文件,留下"半打补丁"
+  # 的安装包比完全不打更危险。任何失败路径都回滚到快照。
+  local snapshot="$target.reapply-snapshot"
+  cp -a "$target" "$snapshot"
   echo "  [apply] $name"
-  ( cd "$DSH_PKG" && patch -p0 --forward --quiet < "$patchfile" ) || { echo "  !! 补丁应用失败（上游代码可能已变化，需手动合并）：$name"; return 1; }
-  if ! grep -qF "$marker" "$target"; then echo "  !! 应用后标记未出现，异常：$name"; return 1; fi
-  if ! node --check "$target" 2>/dev/null; then echo "  !! 应用后语法检查失败：$name"; return 1; fi
+  if ! ( cd "$DSH_PKG" && patch -p0 --forward --quiet < "$patchfile" ); then
+    mv -f "$snapshot" "$target"; rm -f "$target.rej" "$target.orig"
+    echo "  !! 补丁应用失败(已回滚到打补丁前):$name"
+    return 1
+  fi
+  if ! grep -qF "$marker" "$target"; then
+    mv -f "$snapshot" "$target"; rm -f "$target.rej" "$target.orig"
+    echo "  !! 应用后标记未出现,已回滚:$name"
+    return 1
+  fi
+  if ! node --check "$target" 2>/dev/null; then
+    mv -f "$snapshot" "$target"; rm -f "$target.rej" "$target.orig"
+    echo "  !! 应用后语法检查失败,已回滚:$name"
+    return 1
+  fi
+  rm -f "$snapshot"
   echo "  [ok] $name"
   return 0
 }

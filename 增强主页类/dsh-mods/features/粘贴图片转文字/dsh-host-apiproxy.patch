@@ -1,6 +1,15 @@
 --- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
 +++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
-@@ -484,7 +484,105 @@
+@@ -1,7 +1,7 @@
+ import { Service } from "@deepseek-ai/cordis";
+ import z from "@deepseek-ai/schemastery";
+ import { randomUUID } from "node:crypto";
+-import { mkdir, stat } from "node:fs/promises";
++import { mkdir, readFile, stat } from "node:fs/promises";
+ import { homedir, release } from "node:os";
+ import { dirname, extname } from "node:path";
+ import { z as z$1 } from "zod";
+@@ -485,7 +485,116 @@
  const sessionHistoryRequestSchema = z$1.object({
  	sessionId: sessionIdSchema,
  	beforeSeq: z$1.number().int().nonnegative().optional(),
@@ -45,7 +54,18 @@
 +		read: z$1.number().nonnegative(),
 +		write: z$1.number().nonnegative(),
 +		output: z$1.number().nonnegative()
-+	}))
++	})),
++	/** [billing-periods] 分时段调用次数与金额(峰/谷/平价,按请求时刻)。 */
++	periods: z$1.record(z$1.string(), z$1.object({
++		calls: z$1.number().nonnegative(),
++		cost: z$1.number().nonnegative()
++	})).optional(),
++	/** [billing-periods] 各模型在各时段生效的单价表(内置价或自定义价)。 */
++	priceMap: z$1.record(z$1.string(), z$1.record(z$1.string(), z$1.object({
++		cacheRead: z$1.number(),
++		cacheMiss: z$1.number(),
++		output: z$1.number()
++	}))).optional()
 +});
 +/** session.cost 响应:内置价表 + 会话聚合项列表。 */
 +const sessionCostValueSchema = z$1.object({
@@ -107,102 +127,7 @@
  });
  /** Complete provider/model selection. */
  const modelSelectionSchema = z$1.object({
-@@ -941,13 +1039,90 @@
- 			mediaType: item.part.mediaType,
- 			...item.part.name === void 0 ? {} : { name: item.part.name }
- 		});
--		blocks.push({
--			type: "image",
--			attachment
--		});
-+		/* [image-relay-patch] 保留 image 块供前端渲染，同时附加 hidden 的 GLM 文字描述供模型理解 */
-+					blocks.push({
-+						type: "image",
-+						attachment
-+					});
-+					blocks.push({
-+						type: "text",
-+						hidden: true,
-+						text: await relayImageToText(item.data, item.part.mediaType, item.part.name)
-+					});
- 	}
- 	return blocks;
- }
-+/* [image-relay-patch] GLM vision relay helper (cached + parallel + degraded) */
-+const IMAGE_RELAY_CACHE_DIR = (() => {
-+	try {
-+		const { homedir } = require("node:os");
-+		const { join: j } = require("node:path");
-+		const dir = j(homedir(), ".dsh", "cache", "image-relay");
-+		require("node:fs").mkdirSync(dir, { recursive: true });
-+		return dir;
-+	} catch {
-+		return null;
-+	}
-+})();
-+async function relayImageToText(data, mediaType, name) {
-+	try {
-+		const apiKey = process.env.ZHIPU_API_KEY;
-+		if (!apiKey) return "【图片：用户粘贴了一张图片，但未配置 ZHIPU_API_KEY，无法转成文字】";
-+		const mime = mediaType ?? "image/png";
-+		const b64 = Buffer.from(data).toString("base64");
-+		// 缓存：图片字节 hash 作 key，同图秒回（不再重复识别）
-+		const { createHash } = await import("node:crypto");
-+		const hash = createHash("sha256").update(b64).digest("hex").slice(0, 24);
-+		const cacheFile = IMAGE_RELAY_CACHE_DIR === null ? null : (await import("node:path")).join(IMAGE_RELAY_CACHE_DIR, hash + ".txt");
-+		if (cacheFile !== null) {
-+			try {
-+				const { readFileSync } = await import("node:fs");
-+				const cached = readFileSync(cacheFile, "utf8");
-+				if (cached.length > 0) return cached;
-+			} catch { /* cache miss */ }
-+		}
-+		// 识别（8 秒超时，避免长时间卡住发送）
-+		const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
-+			method: "POST",
-+			headers: {
-+				"Content-Type": "application/json",
-+				"Authorization": `Bearer ${apiKey}`
-+			},
-+			body: JSON.stringify({
-+				model: "glm-4v-flash",
-+				messages: [{
-+					role: "user",
-+					content: [
-+						{ type: "text", text: "这是用户粘贴到聊天里的一张图片，请用简洁的2-3句话客观描述图片内容，帮助只看文字的模型理解它。直接描述内容本身，不要加'这是一张图片'之类的开场白。" },
-+						{ type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }
-+					]
-+				}],
-+				max_tokens: 512
-+			}),
-+			signal: AbortSignal.timeout(8000)
-+		});
-+		if (!response.ok) {
-+			return "【图片：用户粘贴了一张图片】";
-+		}
-+		const payload = await response.json();
-+		const content = payload?.choices?.[0]?.message?.content;
-+		const text = Array.isArray(content)
-+			? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("")
-+			: String(content ?? "");
-+		const result = text.trim() === "" ? "【图片：用户粘贴了一张图片】" : `【图片：${text}】`;
-+		// 写缓存
-+		if (cacheFile !== null) {
-+			try {
-+				const { writeFileSync } = await import("node:fs");
-+				writeFileSync(cacheFile, result, "utf8");
-+			} catch { /* cache write failure is non-fatal */ }
-+		}
-+		return result;
-+	} catch (error) {
-+		return "【图片：用户粘贴了一张图片】";
-+	}
-+}
-+
- /** Search durable content for an image reference, including nested tool results. */
- function imageBlockIn(content, match) {
- 	if (!Array.isArray(content)) return void 0;
-@@ -2040,6 +2215,273 @@
+@@ -1995,6 +2104,333 @@
  	* @returns the attached session, or the inspected detached header and events.
  	* @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
  	*/
@@ -212,32 +137,63 @@
 +	* ESTIMATED_PRICES 同步:统计栏/设置面板仍在客户端用同一份内置价,自定义
 +	* 价表由 session.cost 请求的 prices 参数覆盖。修改时必须两边同步。
 +	*/
++	// [billing-20260910] 2026-09-10 12:00 北京起 Flash 系列(flash / flash-vision-exp)降价:
++	// 空闲 命中 0.05→0.02、未命中 1.5→1、输出 4.5→4;高峰为空闲 2 倍(0.04/2/8)。
++	// 故新增 peak2/offpeak2 两档:历史事件仍按当时生效的旧档(peak/offpeak)计价,不用新价回溯。
++	// V4-Pro 官方价不变(peak2/offpeak2 与 peak/offpeak 同值)。
++	/** Price-tier switch: 2026-09-10 12:00 Beijing time (Flash series price cut). */
++	const PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z");
++	/** 时段键 → 旧档键回退,避免新档缺表时落到 current 这种跨代错价。 */
++	const PERIOD_FALLBACK = { peak2: "peak", offpeak2: "offpeak" };
 +	const ESTIMATED_PRICES = {
 +		"deepseek-v4-flash": {
 +			current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
 +			peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
-+			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 }
++			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++			peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++			offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
++		},
++		"deepseek-v4-flash-vision-exp": {
++			current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
++			peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
++			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++			peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++			offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
 +		},
 +		"deepseek-v4-pro": {
 +			current: { cacheRead: 0.025, cacheMiss: 3, output: 6 },
 +			peak: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
-+			offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
++			offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 },
++			peak2: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
++			offpeak2: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
 +		}
 +	};
 +	const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
 +	/** 峰谷切换时刻:2026-08-17 00:00 北京时间。 */
 +	const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");
++	/** 周末低谷价生效时刻:2026-08-23 00:00 北京时间(周六/周日全天统一低谷价;8/22 公布当天及以前周末仍按峰谷时段)。 */
++	const WEEKEND_OFFPEAK_SINCE = Date.parse("2026-08-22T16:00:00Z");
 +	/**
-+	* 北京时区峰谷判定:"current"(切换日前) / "peak"(09-12、14-18 点) / "offpeak"。
++	* 北京时区峰谷判定:"current"(切换日前) / "peak"(工作日 09-12、14-18 点) /
++	* "offpeak"。2026-08-23 00:00 起周六、周日全天不再区分峰谷,统一按低谷价。
 +	*/
 +	function pricingPeriod(now) {
 +		if (now < PEAK_PRICE_SINCE) return "current";
-+		const hour = Number(new Intl.DateTimeFormat("en-US", {
++		const parts = {};
++		for (const p of new Intl.DateTimeFormat("en-US", {
++			weekday: "short",
 +			hour: "numeric",
 +			hour12: false,
 +			timeZone: "Asia/Shanghai"
-+		}).format(now));
-+		return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
++		}).formatToParts(now)) parts[p.type] = p.value;
++		const hour = Number(parts.hour);
++		const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
++		// [billing-weekend] 周末(北京时间周六/周日)全天低谷价,不再区分峰谷时段
++		const peak = isWeekend && now >= WEEKEND_OFFPEAK_SINCE ? false : ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18));
++		// [billing-20260910] 9/10 12:00 北京起走降价后的新档
++		const tier2 = now >= PRICE_CHANGE_20260910;
++		if (peak) return tier2 ? "peak2" : "peak";
++		return tier2 ? "offpeak2" : "offpeak";
 +	}
 +	/**
 +	* 某模型在某个时刻的生效价表:内置价(按时段)+ 自定义价表覆盖。
@@ -285,6 +241,11 @@
 +		const byModel = new Map();
 +		const byDay = new Map();
 +		let skipped = 0;
++		// [billing-periods] 分时段统计:每次调用按请求时刻落入 平价(current)/峰时(peak)/
++		// 谷时(offpeak),供账单"峰谷"列展示(次数与金额),并记录各模型各时段生效单价
++		// (内置价或自定义价,与逐笔计价同源)供悬停提示。
++		const periods = { current: { calls: 0, cost: 0 }, peak: { calls: 0, cost: 0 }, offpeak: { calls: 0, cost: 0 }, peak2: { calls: 0, cost: 0 }, offpeak2: { calls: 0, cost: 0 } };
++		const priceMap = new Map();
 +		for (const event of events) {
 +			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
 +			if (skipped < skipUsage) {
@@ -306,6 +267,14 @@
 +			read += buckets.read;
 +			write += buckets.write;
 +			output += buckets.output;
++			// [billing-periods] 按请求时刻的峰谷时段记账(与逐笔计价同一判定)。
++			const period = pricingPeriod(at);
++			const pr = periods[period];
++			pr.calls += 1;
++			pr.cost += c;
++			let pm = priceMap.get(model);
++			if (pm === void 0) { pm = {}; priceMap.set(model, pm); }
++			if (pm[period] === void 0) pm[period] = priceSetFor(model, at, customPrices);
 +			const m = byModel.get(model) ?? { cost: 0, input: 0, read: 0, write: 0, output: 0 };
 +			m.cost += c;
 +			m.input += buckets.input;
@@ -337,7 +306,9 @@
 +			write,
 +			output,
 +			byModel: Object.fromEntries(byModel),
-+			byDay: Object.fromEntries(byDay)
++			byDay: Object.fromEntries(byDay),
++			periods,
++			priceMap: Object.fromEntries(priceMap)
 +		};
 +	}
 +	/**
@@ -454,6 +425,20 @@
 +	/** 会话 → 父会话(header.parentSession,跨请求持久;"" 表示无父)。供派生去重使用。 */
 +	const parentOfCache = /* @__PURE__ */ new Map();
 +	/**
++	* [billing-refresh-fix] 会话"活动信号",作为费用折叠缓存失效键:
++	* 优先取投影 asOfSeq(每条已提交事件都会推进,包括回合内 assistant/usage
++	* 事件),取不到时退化到摘要 updatedAt(仅用户发消息才推进)。修复:一个
++	* 用户回合内 agent 连续产生的 LLM 调用费用不再冻结在"最后一条用户消息"
++	* 时刻,而是随 5 秒轮询实时刷新。
++	* @param s - 会话摘要(可无)。
++	* @returns 单调递增的活动信号。
++	*/
++	function costActivityKey(s) {
++		if (s === void 0) return 0;
++		const seq = s.projections?.asOfSeq;
++		return typeof seq === "number" ? seq : (s.updatedAt ?? 0);
++	}
++	/**
 +	* 提取会话事件流中的 usage 序列(与 foldCostEvents 同一消费口径:assistant/message 最终样本)。
 +	* @returns 逐笔 [input, read, write, output] 数组。
 +	*/
@@ -476,7 +461,92 @@
  	async function historySourceFor(sessionId) {
  		const attached = ctx.sessions.get(sessionId);
  		if (attached !== void 0) return {
-@@ -2633,12 +3075,16 @@
+@@ -2328,6 +2764,84 @@
+ 		if (defaults.canOpenPath !== void 0) return defaults.canOpenPath();
+ 		return defaults.openPath !== void 0 || canOpenNativePath();
+ 	}
++	/** [file-preview] Byte cap for host.readTextFile previews (2 MiB — documents, not data dumps). */
++	const READ_TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024;
++	/** [file-preview] Binary extensions a surface may embed via data URL; anything else binary refuses. */
++	const READ_PREVIEW_EMBED_MIMES = {
++		".png": "image/png",
++		".jpg": "image/jpeg",
++		".jpeg": "image/jpeg",
++		".gif": "image/gif",
++		".webp": "image/webp",
++		".bmp": "image/bmp",
++		".ico": "image/x-icon",
++		".pdf": "application/pdf"
++	};
++	/**
++	* [file-preview] Read one Host-resolved text document for in-browser preview.
++	* Read-only and size-capped; surfaces refusals on the wire vocabulary so a
++	* surface can fall back to the open-path dialog instead of spawning xdg-open
++	* into a headless host.
++	*/
++	async function readTextFile(request, path, signal) {
++		try {
++			const info = await stat(path);
++			if (!info.isFile()) return err(request, {
++				code: "not-a-file",
++				message: `not a regular file: ${path}`,
++				details: { path }
++			});
++			if (info.size > READ_TEXT_FILE_MAX_BYTES) return err(request, {
++				code: "file-too-large",
++				message: `file is too large to preview (${info.size} bytes; limit ${READ_TEXT_FILE_MAX_BYTES})`,
++				details: { path, size: info.size, limit: READ_TEXT_FILE_MAX_BYTES }
++			});
++			/** [file-preview] Name without trailing separators (shared by both branches). */
++			const name = path.replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? path;
++			const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
++			const buffer = await readFile(path);
++			if (signal.aborted) return err(request, {
++				code: "cancelled",
++				message: "text read was aborted",
++				details: {}
++			});
++			// [file-preview] NUL-byte sniff on the head: binary content either rides the
++			// base64 lane when a surface can embed it (images / pdf) or refuses clearly.
++			if (buffer.subarray(0, 8192).includes(0)) {
++				const mime = READ_PREVIEW_EMBED_MIMES[ext];
++				if (mime === void 0) return err(request, {
++					code: "binary-file",
++					message: `binary file has no text preview: ${name}`,
++					details: { path }
++				});
++				return ok(request, {
++					path,
++					name,
++					content: buffer.toString("base64"),
++					truncated: false,
++					encoding: "base64",
++					mime
++				});
++			}
++			return ok(request, {
++				path,
++				name,
++				content: buffer.toString("utf8"),
++				truncated: false
++			});
++		} catch (error) {
++			if (signal.aborted) return err(request, {
++				code: "cancelled",
++				message: "text read was aborted",
++				details: {}
++			});
++			return err(request, {
++				code: "internal",
++				message: `text read failed: ${error instanceof Error ? error.message : String(error)}`,
++				details: { path }
++			});
++		}
++	}
+ 	/** Missing-service report shared by the credentials domain. */
+ 	function credentialsAbsent() {
+ 		return {
+@@ -2564,12 +3078,16 @@
  				});
  			},
  			async history(request) {
@@ -495,15 +565,18 @@
  					return ok(request, {
  						events: page.events,
  						hasMore: page.hasMore,
-@@ -2657,6 +3103,249 @@
+@@ -2588,6 +3106,256 @@
  					});
  				}
  			},
 +			/**
 +			* [billing-fix] 全会话费用聚合:服务端按请求时刻逐笔折叠(与客户端明细
 +			* 弹窗同一口径),总账单页面一行一次请求拿全量,不再由浏览器逐会话拉
-+			* 明细折叠。折叠结果按 (updatedAt, 价表) 缓存,会话无新增活动或价表
-+			* 未变时直接复用,5 秒轮询零成本。
++			* 明细折叠。折叠结果按 (活动信号 asOfSeq, 价表) 缓存,会话无新增事件或
++			* 价表未变时直接复用,5 秒轮询零成本。
++			* [billing-refresh-fix] 失效键从 updatedAt(仅用户发消息推进)改为投影
++			* asOfSeq(每条已提交事件推进):回合内 agent 连续调用的费用实时刷新,
++			* 不再冻结在"最后一条用户消息"时刻。
 +			* [billing-dedup] 派生会话去重:fork 会话继承父会话全部 usage 记录,
 +			* 折叠时跳过与父会话 usage 序列逐笔相同的前缀,只计 fork 后的新增
 +			* 调用(父会话被删除时父序列不可得,派生会话恢复全额计费,避免漏记)。
@@ -567,8 +640,9 @@
 +					for (const s of targets) {
 +						if (s.origin === "subagent") {
 +							// [billing-backend] 子代理:折叠后归集到父行 subCost,不入 items。
++							// [billing-refresh-fix] 缓存失效键用活动信号(asOfSeq),回合内新调用即时失效。
 +							const cached = costCache.get(s.sessionId);
-+							if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey) {
++							if (cached !== void 0 && cached.at === costActivityKey(s) && cached.pk === priceKey) {
 +								const parentId = parentOfCache.get(s.sessionId);
 +								if (typeof parentId === "string" && parentId !== "") {
 +									const prev = subCostByParent.get(parentId) ?? { cost: 0, count: 0 };
@@ -600,8 +674,10 @@
 +						}
 +						const cached = costCache.get(s.sessionId);
 +						// [billing-dedup] 派生会话的折叠依赖父会话存在性,不参与缓存命中
-+						// (父被删除后必须立即恢复全额计费);非派生会话照常按 updatedAt 缓存。
-+						if (cached !== void 0 && cached.at === s.updatedAt && cached.pk === priceKey && cached.extra === void 0) {
++						// (父被删除后必须立即恢复全额计费);非派生会话照常按活动信号缓存。
++						// [billing-refresh-fix] 失效键 = costActivityKey(投影 asOfSeq),回合内
++						// 新 usage 事件即时推进,长回合费用不再冻结在"最后一条用户消息"时刻。
++						if (cached !== void 0 && cached.at === costActivityKey(s) && cached.pk === priceKey && cached.extra === void 0) {
 +							items.push({ sessionId: s.sessionId, updatedAt: s.updatedAt, ...cached.fold });
 +							continue;
 +						}
@@ -628,7 +704,7 @@
 +							// 非派生会话 extra 必须为 undefined(缓存命中分支以 extra === void 0 判定,
 +							// 空对象会让缓存永不命中,每次请求都全量重算)。
 +							const extra = derivedFrom === void 0 ? void 0 : { derivedFrom, dedupSkipped: skip };
-+							costCache.set(s.sessionId, { at: s.updatedAt, pk: priceKey, fold, extra });
++							costCache.set(s.sessionId, { at: costActivityKey(s), pk: priceKey, fold, extra });
 +							items.push({
 +								sessionId: s.sessionId,
 +								updatedAt: s.updatedAt,
@@ -692,7 +768,7 @@
 +			/**
 +			* [billing-backend] 单会话费用明细:逐轮汇总 + 逐笔流水,全部后端折叠
 +			* (按请求时刻计价、北京峰谷、设置自定义价、派生去重),前端只渲染。
-+			* 明细折叠按 (updatedAt, 价表) 缓存。
++			* 明细折叠按 (活动信号 asOfSeq, 价表) 缓存。
 +			*/
 +			async costDetail(request, signal) {
 +				const { sessionId } = request.payload;
@@ -703,7 +779,8 @@
 +					const summaries = await listVisibleSessionSummaries(signal);
 +					const summary = summaries.find((s) => s.sessionId === sessionId);
 +					const cached = detailCache.get(sessionId);
-+					if (cached !== void 0 && cached.at === (summary?.updatedAt ?? 0) && cached.pk === priceKey) {
++					// [billing-refresh-fix] 失效键用活动信号(asOfSeq),回合内新调用即时失效。
++					if (cached !== void 0 && cached.at === costActivityKey(summary) && cached.pk === priceKey) {
 +						return ok(request, cached.value);
 +					}
 +					const source = await historySourceFor(sessionId);
@@ -727,7 +804,7 @@
 +						...derivedFrom === void 0 ? {} : { derivedFrom, dedupSkipped: skip },
 +						...detail
 +					};
-+					detailCache.set(sessionId, { at: summary?.updatedAt ?? 0, pk: priceKey, value });
++					detailCache.set(sessionId, { at: costActivityKey(summary), pk: priceKey, value });
 +					return ok(request, value);
 +				} catch (error) {
 +					if (error instanceof ApiRemoteSessionNotFound) return err(request, {
@@ -745,25 +822,7 @@
  			async models(request) {
  				const { sessionId } = request.payload;
  				const found = await agentFor(sessionId);
-@@ -2684,7 +3373,7 @@
- 						});
- 						if ([...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep].some((message) => contentHasImage(message.content)) || messagesHaveImage(found.agent.session.deriveMessages())) {
- 							const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model);
--							if (info.inputModalities !== void 0 && !info.inputModalities.includes("image")) return err(request, {
-+							if (false && info.inputModalities !== void 0 && !info.inputModalities.includes("image")) return err(request, { /* [image-relay-patch]: 能力检查已旁路，图片走 GLM 转文字 */
- 								code: "model-unavailable",
- 								message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
- 								details: {
-@@ -2841,7 +3530,7 @@
- 						if (hasImage) {
- 							const current = selectionFor(agent).current;
- 							const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);
--							if (modelInfo.inputModalities !== void 0 && !modelInfo.inputModalities.includes("image")) return err(request, {
-+							if (false && modelInfo.inputModalities !== void 0 && !modelInfo.inputModalities.includes("image")) return err(request, { /* [image-relay-patch]: 能力检查已旁路，图片走 GLM 转文字 */
- 								code: "attachment-error",
- 								message: `Model "${current.model}" does not support image input.`,
- 								details: { reason: "MODEL_DOES_NOT_SUPPORT_IMAGES" }
-@@ -3204,6 +3893,38 @@
+@@ -3136,6 +3904,38 @@
  					canOpenPath: canOpenPaths()
  				}));
  			},
@@ -802,8 +861,18 @@
  			async pickDirectory(request, signal) {
  				const capability = ctx.directoryPicker.capability();
  				if (capability.kind !== "native") return err(request, {
-@@ -4219,6 +4940,16 @@
- 	attachedSessions: z$1.number().int().nonnegative(),
+@@ -3191,6 +3991,9 @@
+ 			},
+ 			async openPath(request, signal) {
+ 				return openPath(request, request.payload.path, signal);
++			},
++			async readTextFile(request, signal) {
++				return readTextFile(request, request.payload.path, signal);
+ 			}
+ 		},
+ 		goals: {
+@@ -4146,6 +4949,16 @@
+ 	home: z$1.string(),
  	canOpenPath: z$1.boolean()
  });
 +/** host.balance request payload (empty object literal). */
@@ -819,7 +888,25 @@
  /** host.pickDirectory request payload (empty object literal). */
  const hostPickDirectoryRequestSchema = z$1.object({});
  /** host.pickDirectory response value; null means the user cancelled. */
-@@ -4683,6 +5414,14 @@
+@@ -4177,6 +4990,17 @@
+ const hostOpenPathRequestSchema = z$1.object({ path: z$1.string().min(1) });
+ /** host.openPath response value. */
+ const hostOpenPathValueSchema = z$1.object({ opened: z$1.literal(true) });
++/** [file-preview] host.readTextFile request payload. */
++const hostReadTextFileRequestSchema = z$1.object({ path: z$1.string().min(1) });
++/** [file-preview] host.readTextFile response value: one size-capped read-only text document. */
++const hostReadTextFileValueSchema = z$1.object({
++	path: z$1.string(),
++	name: z$1.string(),
++	content: z$1.string(),
++	truncated: z$1.boolean(),
++	encoding: z$1.enum(["utf8", "base64"]).optional(),
++	mime: z$1.string().optional()
++});
+ //#endregion
+ //#region lib/types/api/workspace.schema.js
+ /**
+@@ -4610,6 +5434,14 @@
  		schema: sessionHistoryRequestSchema,
  		invoke: (api, r) => api.sessions.history(r)
  	},
@@ -834,7 +921,7 @@
  	"session.models": {
  		schema: sessionModelsRequestSchema,
  		invoke: (api, r) => api.sessions.models(r)
-@@ -4735,6 +5474,10 @@
+@@ -4662,6 +5494,10 @@
  		schema: hostDescribeRequestSchema,
  		invoke: (api, r) => api.host.describe(r)
  	},
@@ -845,7 +932,18 @@
  	"host.pickDirectory": {
  		schema: hostPickDirectoryRequestSchema,
  		invoke: (api, r, signal) => api.host.pickDirectory(r, signal)
-@@ -5256,6 +5999,7 @@
+@@ -4678,6 +5514,10 @@
+ 		schema: hostOpenPathRequestSchema,
+ 		invoke: (api, r, signal) => api.host.openPath(r, signal)
+ 	},
++	"host.readTextFile": {
++		schema: hostReadTextFileRequestSchema,
++		invoke: (api, r, signal) => api.host.readTextFile(r, signal)
++	},
+ 	"workspace.list": {
+ 		schema: workspaceListRequestSchema,
+ 		invoke: (api, r) => api.workspace.list(r)
+@@ -5183,10 +6023,12 @@
  	"subagent.prompt": subagentPromptValueSchema,
  	"subagent.interrupt": subagentInterruptValueSchema,
  	"host.describe": hostDescribeValueSchema,
@@ -853,7 +951,12 @@
  	"host.pickDirectory": hostPickDirectoryValueSchema,
  	"host.listDirectory": hostListDirectoryValueSchema,
  	"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -5472,6 +6216,7 @@
+ 	"host.openPath": hostOpenPathValueSchema,
++	"host.readTextFile": hostReadTextFileValueSchema,
+ 	"workspace.list": workspaceListValueSchema,
+ 	"workspace.create": workspaceCreateValueSchema,
+ 	"workspace.rename": workspaceRenameValueSchema,
+@@ -5399,6 +6241,7 @@
  	};
  	host = {
  		describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
@@ -861,7 +964,7 @@
  		pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
  		listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
  		createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),
-@@ -5642,6 +6387,13 @@
+@@ -5569,6 +6412,13 @@
  		this.events = api.events;
  		this.downloads = api.downloads;
  		this.respond = api.respond.bind(api);

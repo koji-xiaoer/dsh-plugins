@@ -1,5 +1,14 @@
 --- node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
 +++ node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js
+@@ -1,7 +1,7 @@
+ import { Service } from "@deepseek-ai/cordis";
+ import z from "@deepseek-ai/schemastery";
+ import { randomUUID } from "node:crypto";
+-import { mkdir, stat } from "node:fs/promises";
++import { mkdir, readFile, stat } from "node:fs/promises";
+ import { homedir, release } from "node:os";
+ import { dirname, extname } from "node:path";
+ import { z as z$1 } from "zod";
 @@ -485,7 +485,116 @@
  const sessionHistoryRequestSchema = z$1.object({
  	sessionId: sessionIdSchema,
@@ -118,7 +127,7 @@
  });
  /** Complete provider/model selection. */
  const modelSelectionSchema = z$1.object({
-@@ -1995,6 +2104,302 @@
+@@ -1995,6 +2104,333 @@
  	* @returns the attached session, or the inspected detached header and events.
  	* @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
  	*/
@@ -128,32 +137,63 @@
 +	* ESTIMATED_PRICES 同步:统计栏/设置面板仍在客户端用同一份内置价,自定义
 +	* 价表由 session.cost 请求的 prices 参数覆盖。修改时必须两边同步。
 +	*/
++	// [billing-20260910] 2026-09-10 12:00 北京起 Flash 系列(flash / flash-vision-exp)降价:
++	// 空闲 命中 0.05→0.02、未命中 1.5→1、输出 4.5→4;高峰为空闲 2 倍(0.04/2/8)。
++	// 故新增 peak2/offpeak2 两档:历史事件仍按当时生效的旧档(peak/offpeak)计价,不用新价回溯。
++	// V4-Pro 官方价不变(peak2/offpeak2 与 peak/offpeak 同值)。
++	/** Price-tier switch: 2026-09-10 12:00 Beijing time (Flash series price cut). */
++	const PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z");
++	/** 时段键 → 旧档键回退,避免新档缺表时落到 current 这种跨代错价。 */
++	const PERIOD_FALLBACK = { peak2: "peak", offpeak2: "offpeak" };
 +	const ESTIMATED_PRICES = {
 +		"deepseek-v4-flash": {
 +			current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
 +			peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
-+			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 }
++			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++			peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++			offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
++		},
++		"deepseek-v4-flash-vision-exp": {
++			current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
++			peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
++			offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++			peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++			offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
 +		},
 +		"deepseek-v4-pro": {
 +			current: { cacheRead: 0.025, cacheMiss: 3, output: 6 },
 +			peak: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
-+			offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
++			offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 },
++			peak2: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
++			offpeak2: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
 +		}
 +	};
 +	const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
 +	/** 峰谷切换时刻:2026-08-17 00:00 北京时间。 */
 +	const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");
++	/** 周末低谷价生效时刻:2026-08-23 00:00 北京时间(周六/周日全天统一低谷价;8/22 公布当天及以前周末仍按峰谷时段)。 */
++	const WEEKEND_OFFPEAK_SINCE = Date.parse("2026-08-22T16:00:00Z");
 +	/**
-+	* 北京时区峰谷判定:"current"(切换日前) / "peak"(09-12、14-18 点) / "offpeak"。
++	* 北京时区峰谷判定:"current"(切换日前) / "peak"(工作日 09-12、14-18 点) /
++	* "offpeak"。2026-08-23 00:00 起周六、周日全天不再区分峰谷,统一按低谷价。
 +	*/
 +	function pricingPeriod(now) {
 +		if (now < PEAK_PRICE_SINCE) return "current";
-+		const hour = Number(new Intl.DateTimeFormat("en-US", {
++		const parts = {};
++		for (const p of new Intl.DateTimeFormat("en-US", {
++			weekday: "short",
 +			hour: "numeric",
 +			hour12: false,
 +			timeZone: "Asia/Shanghai"
-+		}).format(now));
-+		return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
++		}).formatToParts(now)) parts[p.type] = p.value;
++		const hour = Number(parts.hour);
++		const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
++		// [billing-weekend] 周末(北京时间周六/周日)全天低谷价,不再区分峰谷时段
++		const peak = isWeekend && now >= WEEKEND_OFFPEAK_SINCE ? false : ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18));
++		// [billing-20260910] 9/10 12:00 北京起走降价后的新档
++		const tier2 = now >= PRICE_CHANGE_20260910;
++		if (peak) return tier2 ? "peak2" : "peak";
++		return tier2 ? "offpeak2" : "offpeak";
 +	}
 +	/**
 +	* 某模型在某个时刻的生效价表:内置价(按时段)+ 自定义价表覆盖。
@@ -204,7 +244,7 @@
 +		// [billing-periods] 分时段统计:每次调用按请求时刻落入 平价(current)/峰时(peak)/
 +		// 谷时(offpeak),供账单"峰谷"列展示(次数与金额),并记录各模型各时段生效单价
 +		// (内置价或自定义价,与逐笔计价同源)供悬停提示。
-+		const periods = { current: { calls: 0, cost: 0 }, peak: { calls: 0, cost: 0 }, offpeak: { calls: 0, cost: 0 } };
++		const periods = { current: { calls: 0, cost: 0 }, peak: { calls: 0, cost: 0 }, offpeak: { calls: 0, cost: 0 }, peak2: { calls: 0, cost: 0 }, offpeak2: { calls: 0, cost: 0 } };
 +		const priceMap = new Map();
 +		for (const event of events) {
 +			if (event.type !== "assistant/message" || event.data?.usage === void 0) continue;
@@ -421,7 +461,92 @@
  	async function historySourceFor(sessionId) {
  		const attached = ctx.sessions.get(sessionId);
  		if (attached !== void 0) return {
-@@ -2564,12 +2969,16 @@
+@@ -2328,6 +2764,84 @@
+ 		if (defaults.canOpenPath !== void 0) return defaults.canOpenPath();
+ 		return defaults.openPath !== void 0 || canOpenNativePath();
+ 	}
++	/** [file-preview] Byte cap for host.readTextFile previews (2 MiB — documents, not data dumps). */
++	const READ_TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024;
++	/** [file-preview] Binary extensions a surface may embed via data URL; anything else binary refuses. */
++	const READ_PREVIEW_EMBED_MIMES = {
++		".png": "image/png",
++		".jpg": "image/jpeg",
++		".jpeg": "image/jpeg",
++		".gif": "image/gif",
++		".webp": "image/webp",
++		".bmp": "image/bmp",
++		".ico": "image/x-icon",
++		".pdf": "application/pdf"
++	};
++	/**
++	* [file-preview] Read one Host-resolved text document for in-browser preview.
++	* Read-only and size-capped; surfaces refusals on the wire vocabulary so a
++	* surface can fall back to the open-path dialog instead of spawning xdg-open
++	* into a headless host.
++	*/
++	async function readTextFile(request, path, signal) {
++		try {
++			const info = await stat(path);
++			if (!info.isFile()) return err(request, {
++				code: "not-a-file",
++				message: `not a regular file: ${path}`,
++				details: { path }
++			});
++			if (info.size > READ_TEXT_FILE_MAX_BYTES) return err(request, {
++				code: "file-too-large",
++				message: `file is too large to preview (${info.size} bytes; limit ${READ_TEXT_FILE_MAX_BYTES})`,
++				details: { path, size: info.size, limit: READ_TEXT_FILE_MAX_BYTES }
++			});
++			/** [file-preview] Name without trailing separators (shared by both branches). */
++			const name = path.replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? path;
++			const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
++			const buffer = await readFile(path);
++			if (signal.aborted) return err(request, {
++				code: "cancelled",
++				message: "text read was aborted",
++				details: {}
++			});
++			// [file-preview] NUL-byte sniff on the head: binary content either rides the
++			// base64 lane when a surface can embed it (images / pdf) or refuses clearly.
++			if (buffer.subarray(0, 8192).includes(0)) {
++				const mime = READ_PREVIEW_EMBED_MIMES[ext];
++				if (mime === void 0) return err(request, {
++					code: "binary-file",
++					message: `binary file has no text preview: ${name}`,
++					details: { path }
++				});
++				return ok(request, {
++					path,
++					name,
++					content: buffer.toString("base64"),
++					truncated: false,
++					encoding: "base64",
++					mime
++				});
++			}
++			return ok(request, {
++				path,
++				name,
++				content: buffer.toString("utf8"),
++				truncated: false
++			});
++		} catch (error) {
++			if (signal.aborted) return err(request, {
++				code: "cancelled",
++				message: "text read was aborted",
++				details: {}
++			});
++			return err(request, {
++				code: "internal",
++				message: `text read failed: ${error instanceof Error ? error.message : String(error)}`,
++				details: { path }
++			});
++		}
++	}
+ 	/** Missing-service report shared by the credentials domain. */
+ 	function credentialsAbsent() {
+ 		return {
+@@ -2564,12 +3078,16 @@
  				});
  			},
  			async history(request) {
@@ -440,7 +565,7 @@
  					return ok(request, {
  						events: page.events,
  						hasMore: page.hasMore,
-@@ -2588,6 +2997,256 @@
+@@ -2588,6 +3106,256 @@
  					});
  				}
  			},
@@ -697,7 +822,7 @@
  			async models(request) {
  				const { sessionId } = request.payload;
  				const found = await agentFor(sessionId);
-@@ -3136,6 +3795,38 @@
+@@ -3136,6 +3904,38 @@
  					canOpenPath: canOpenPaths()
  				}));
  			},
@@ -736,7 +861,17 @@
  			async pickDirectory(request, signal) {
  				const capability = ctx.directoryPicker.capability();
  				if (capability.kind !== "native") return err(request, {
-@@ -4146,6 +4837,16 @@
+@@ -3191,6 +3991,9 @@
+ 			},
+ 			async openPath(request, signal) {
+ 				return openPath(request, request.payload.path, signal);
++			},
++			async readTextFile(request, signal) {
++				return readTextFile(request, request.payload.path, signal);
+ 			}
+ 		},
+ 		goals: {
+@@ -4146,6 +4949,16 @@
  	home: z$1.string(),
  	canOpenPath: z$1.boolean()
  });
@@ -753,7 +888,25 @@
  /** host.pickDirectory request payload (empty object literal). */
  const hostPickDirectoryRequestSchema = z$1.object({});
  /** host.pickDirectory response value; null means the user cancelled. */
-@@ -4610,6 +5311,14 @@
+@@ -4177,6 +4990,17 @@
+ const hostOpenPathRequestSchema = z$1.object({ path: z$1.string().min(1) });
+ /** host.openPath response value. */
+ const hostOpenPathValueSchema = z$1.object({ opened: z$1.literal(true) });
++/** [file-preview] host.readTextFile request payload. */
++const hostReadTextFileRequestSchema = z$1.object({ path: z$1.string().min(1) });
++/** [file-preview] host.readTextFile response value: one size-capped read-only text document. */
++const hostReadTextFileValueSchema = z$1.object({
++	path: z$1.string(),
++	name: z$1.string(),
++	content: z$1.string(),
++	truncated: z$1.boolean(),
++	encoding: z$1.enum(["utf8", "base64"]).optional(),
++	mime: z$1.string().optional()
++});
+ //#endregion
+ //#region lib/types/api/workspace.schema.js
+ /**
+@@ -4610,6 +5434,14 @@
  		schema: sessionHistoryRequestSchema,
  		invoke: (api, r) => api.sessions.history(r)
  	},
@@ -768,7 +921,7 @@
  	"session.models": {
  		schema: sessionModelsRequestSchema,
  		invoke: (api, r) => api.sessions.models(r)
-@@ -4662,6 +5371,10 @@
+@@ -4662,6 +5494,10 @@
  		schema: hostDescribeRequestSchema,
  		invoke: (api, r) => api.host.describe(r)
  	},
@@ -779,7 +932,18 @@
  	"host.pickDirectory": {
  		schema: hostPickDirectoryRequestSchema,
  		invoke: (api, r, signal) => api.host.pickDirectory(r, signal)
-@@ -5183,6 +5896,7 @@
+@@ -4678,6 +5514,10 @@
+ 		schema: hostOpenPathRequestSchema,
+ 		invoke: (api, r, signal) => api.host.openPath(r, signal)
+ 	},
++	"host.readTextFile": {
++		schema: hostReadTextFileRequestSchema,
++		invoke: (api, r, signal) => api.host.readTextFile(r, signal)
++	},
+ 	"workspace.list": {
+ 		schema: workspaceListRequestSchema,
+ 		invoke: (api, r) => api.workspace.list(r)
+@@ -5183,10 +6023,12 @@
  	"subagent.prompt": subagentPromptValueSchema,
  	"subagent.interrupt": subagentInterruptValueSchema,
  	"host.describe": hostDescribeValueSchema,
@@ -787,7 +951,12 @@
  	"host.pickDirectory": hostPickDirectoryValueSchema,
  	"host.listDirectory": hostListDirectoryValueSchema,
  	"host.createDirectory": hostCreateDirectoryValueSchema,
-@@ -5399,6 +6113,7 @@
+ 	"host.openPath": hostOpenPathValueSchema,
++	"host.readTextFile": hostReadTextFileValueSchema,
+ 	"workspace.list": workspaceListValueSchema,
+ 	"workspace.create": workspaceCreateValueSchema,
+ 	"workspace.rename": workspaceRenameValueSchema,
+@@ -5399,6 +6241,7 @@
  	};
  	host = {
  		describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
@@ -795,7 +964,7 @@
  		pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
  		listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
  		createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),
-@@ -5569,6 +6284,13 @@
+@@ -5569,6 +6412,13 @@
  		this.events = api.events;
  		this.downloads = api.downloads;
  		this.respond = api.respond.bind(api);

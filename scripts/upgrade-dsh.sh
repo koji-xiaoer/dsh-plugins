@@ -4,7 +4,7 @@
 #
 # 处理链(与手工操作一一对应,避免升级后启动不起来):
 #   1. npm 全局安装目标版本 dsh
-#   2. 重放 ~/.dsh/patches/ 的全部补丁(reapply-dsh-mods.sh,8 个,幂等)
+#   2. 重放 ~/.dsh/patches/ 的全部补丁(reapply-dsh-mods.sh,幂等)
 #   3. 同步裁剪版 host 插件进 web profile(覆盖 git 安装的旧版,去掉图片中继)
 #   4. 重启 dsh-web 服务(systemd user 服务)
 #
@@ -12,15 +12,35 @@
 #   bash scripts/upgrade-dsh.sh               # 默认升级到 0.1.1-rc.1
 #   bash scripts/upgrade-dsh.sh 0.1.1-rc.1    # 指定版本
 #   bash scripts/upgrade-dsh.sh --check       # 只检查当前状态,不改动
+#
+# 升级前请先跑预演,拿到破坏面报告再动手:
+#   bash scripts/rehearse-upgrade.sh
 # ============================================================
 set -euo pipefail
 
 TARGET="${1:-0.1.1-rc.1}"
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 解析自身真实路径。本脚本可能以 ~/.dsh/scripts/ 下的软链被调用,
+# 直接用 BASH_SOURCE 会把 REPO_DIR 算成 ~/.dsh,导致插件同步源解析不到。
+SELF="${BASH_SOURCE[0]}"
+command -v readlink >/dev/null 2>&1 && SELF="$(readlink -f "$SELF" 2>/dev/null || printf '%s' "$SELF")"
+REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 PROFILE_DIR="$DSH_HOME/profiles/web"
-REAPPLY="$REPO_DIR/scripts/reapply-dsh-mods.sh"
-REAPPLY_HOME="$DSH_HOME/scripts/reapply-dsh-mods.sh"
+
+# 辅助脚本一律按「仓库 → ~/.dsh/scripts」顺序解析一次,check 与 apply 共用同一结果。
+# 历史 bug:check_only 只看 ~/.dsh/scripts 下的旧副本,而该副本比仓库少 2 个补丁,
+# 导致 --check 长期少报补丁状态(apply 走的是仓库副本,两者结论不一致)。
+pick_script() {
+  local name="$1"
+  if   [ -f "$REPO_DIR/scripts/$name" ]; then printf '%s' "$REPO_DIR/scripts/$name"
+  elif [ -f "$DSH_HOME/scripts/$name" ]; then printf '%s' "$DSH_HOME/scripts/$name"
+  fi
+}
+REAPPLY="$(pick_script reapply-dsh-mods.sh)"
+MODEL_SELECT="$(pick_script install-model-select.sh)"
+
 PLUGIN_SRC="$REPO_DIR/插件类/dsh-mods-enhanced/lib/index.js"
 PLUGIN_DST="$PROFILE_DIR/node_modules/dsh-mods-enhanced/插件类/dsh-mods-enhanced/lib/index.js"
 
@@ -34,7 +54,12 @@ check_only() {
   echo "== dsh 版本 =="
   node -p "require('$(npm root -g)/@deepseek-ai/dsh/package.json').version" 2>/dev/null || echo "未安装"
   echo "== 补丁状态 =="
-  if [ -f "$REAPPLY_HOME" ]; then bash "$REAPPLY_HOME" --check || rc=1; fi
+  if [ -n "$REAPPLY" ]; then
+    echo "   脚本: $REAPPLY"
+    bash "$REAPPLY" --check || rc=1
+  else
+    warn "找不到 reapply-dsh-mods.sh(仓库与 ~/.dsh/scripts 都没有)"; rc=1
+  fi
   echo "== profile host 插件 =="
   if [ -f "$PLUGIN_DST" ]; then
     if grep -q "relayImage" "$PLUGIN_DST" 2>/dev/null; then warn "仍是旧版(含图片中继),升级后需同步"; else info "裁剪版(无图片中继)"; fi
@@ -42,8 +67,8 @@ check_only() {
     warn "profile 中未找到 dsh-mods-enhanced"
   fi
   echo "== 模型选择插件接口兼容性 =="
-  if [ -f "$REPO_DIR/scripts/install-model-select.sh" ] || [ -f "$HOME/.dsh/scripts/install-model-select.sh" ]; then
-    if bash "$( [ -f "$REPO_DIR/scripts/install-model-select.sh" ] && echo "$REPO_DIR/scripts/install-model-select.sh" || echo "$HOME/.dsh/scripts/install-model-select.sh" )" --check >/dev/null 2>&1; then info "兼容"; else warn "存在缺失项(见上方明细)"; rc=1; fi
+  if [ -n "$MODEL_SELECT" ]; then
+    if bash "$MODEL_SELECT" --check >/dev/null 2>&1; then info "兼容"; else warn "存在缺失项(见上方明细)"; rc=1; fi
   else
     warn "未找到 install-model-select.sh"
   fi
@@ -64,15 +89,13 @@ npm i -g "@deepseek-ai/dsh@${TARGET}" || die "dsh 安装失败"
 
 # ---------- 2. 重放补丁 ----------
 info "重放自定义补丁 ..."
-if [ -f "$REAPPLY" ]; then bash "$REAPPLY" || die "补丁重放失败(见上方 !! 提示)"
-elif [ -f "$REAPPLY_HOME" ]; then bash "$REAPPLY_HOME" || die "补丁重放失败"
-else die "找不到 reapply-dsh-mods.sh"
-fi
+[ -n "$REAPPLY" ] || die "找不到 reapply-dsh-mods.sh(仓库与 ~/.dsh/scripts 都没有)"
+bash "$REAPPLY" || die "补丁重放失败(见上方 !! 提示)"
 
 # ---------- 3. 兼容性检测(模型选择插件接口,适配新旧版本布局) ----------
-if [ -f "$REPO_DIR/scripts/install-model-select.sh" ] || [ -f "$HOME/.dsh/scripts/install-model-select.sh" ]; then
+if [ -n "$MODEL_SELECT" ]; then
   info "模型选择插件接口兼容性检测 ..."
-  if bash "$( [ -f "$REPO_DIR/scripts/install-model-select.sh" ] && echo "$REPO_DIR/scripts/install-model-select.sh" || echo "$HOME/.dsh/scripts/install-model-select.sh" )" --check >/dev/null 2>&1; then
+  if bash "$MODEL_SELECT" --check >/dev/null 2>&1; then
     info "兼容性检测通过"
   else
     warn "兼容性检测未完全通过(不影响升级本身;可稍后手动处理 model-select 插件)"
@@ -82,13 +105,17 @@ else
 fi
 
 # ---------- 4. 同步 host 插件进 profile ----------
-if [ -d "$(dirname "$PLUGIN_DST")" ]; then
+# 注意:先判断源是否存在再 cp。原先只判断目标目录,源缺失时 cp 会在 set -e 下
+# 直接中止 —— 而此时 npm 安装与补丁重放都已经做完,会留下半升级状态。
+if [ ! -d "$(dirname "$PLUGIN_DST")" ]; then
+  warn "profile 中无 dsh-mods-enhanced,跳过插件同步(若使用 git 安装请先 pnpm update)"
+elif [ ! -f "$PLUGIN_SRC" ]; then
+  warn "找不到插件源,跳过同步: $PLUGIN_SRC (REPO_DIR=$REPO_DIR 解析异常?)"
+else
   info "同步 host 插件(裁剪版,去图片中继) → profile ..."
   cp "$PLUGIN_SRC" "$PLUGIN_DST"
   node --check "$PLUGIN_DST" || die "同步后的 host 插件语法检查失败"
   if grep -q "relayImage" "$PLUGIN_DST" 2>/dev/null; then warn "同步后仍含 relayImage(来源仓库未裁剪?)"; else info "host 插件已裁剪(无图片中继)"; fi
-else
-  warn "profile 中无 dsh-mods-enhanced,跳过插件同步(若使用 git 安装请先 pnpm update)"
 fi
 
 # ---------- 5. 重启服务 ----------

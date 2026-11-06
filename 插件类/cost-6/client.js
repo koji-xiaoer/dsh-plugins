@@ -98,6 +98,16 @@ return {
         return (d.getMonth() + 1) + '-' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
       } catch { return '' }
     }
+    // [billing-20260910] 时段标签:新价档(9/10 12:00 北京起)与过去时段旧价档分开展示,
+    // 历史调用仍按当时生效价档计价,不用新价回溯。
+    const PERIOD_LABEL = { current: '平', peak: '峰旧', offpeak: '谷旧', peak2: '峰', offpeak2: '谷' }
+    const PERIOD_TIP = {
+      current: '过去时段 · 8/17 前平价',
+      peak: '过去时段 · 8/17~9/10 12:00 工作日峰价(0.1/3/9)',
+      offpeak: '过去时段 · 8/17~9/10 12:00 谷价(0.05/1.5/4.5);8/23 起周末全天',
+      peak2: '9/10 12:00 起新价 · 工作日峰时 09-12/14-18(北京):0.04/2/8',
+      offpeak2: '9/10 12:00 起新价 · 空闲:0.02/1/4(工作日其余时段;周末全天)'
+    }
     styles.insert('.cost-dock{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:10px;font-size:12px;color:var(--dsw-alias-label-tertiary)}.cost-dock-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cost-dock-total{font-weight:600;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}.cost-dock-model{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.cost-dock-toggle{cursor:pointer;opacity:.7}.cost-dock-toggle:hover{opacity:1}.cost-bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:4px 2px 0;overflow-x:auto}.cost-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:26px;height:100%}.cost-bar-fill{width:18px;border-radius:4px 4px 0 0;background:var(--dsw-alias-state-business-primary);min-height:3px}.cost-bar-val{font-size:9px;color:var(--dsw-alias-label-tertiary);line-height:1.4}.cost-bar-idx{font-size:9px;color:var(--dsw-alias-label-dimmed)}.cost-pager{display:flex;align-items:center;gap:8px;font-size:11px}.cost-pager button{background:none;border:1px solid var(--dsw-alias-border-l2);color:inherit;border-radius:6px;padding:1px 8px;cursor:pointer;font-size:11px}.cost-pager button:disabled{opacity:.35;cursor:default}.cost-table{width:100%;border-collapse:collapse;font-size:12px}.cost-table th,.cost-table td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}.cost-table th{color:var(--dsw-alias-label-tertiary);font-weight:500}.cost-table tr.clickable{cursor:pointer}.cost-table tr.clickable:hover{background:var(--dsw-alias-interactive-bg-hover)}.cost-num{text-align:right;font-variant-numeric:tabular-nums}.cost-empty{color:var(--dsw-alias-label-tertiary);padding:12px;text-align:center}.cost-settings{display:flex;flex-direction:column;gap:10px}.cost-settings-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.cost-settings-label{font-size:12px;color:var(--dsw-alias-label-tertiary)}.cost-price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.cost-price-cell{display:flex;flex-direction:column;gap:2px}.cost-price-cell span{font-size:10px;color:var(--dsw-alias-label-tertiary)}.cost-price-cell input{width:100%;box-sizing:border-box;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-primary);font-size:12px;padding:3px 6px}.cost-curr{position:relative}.cost-curr-btn{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-primary);cursor:pointer;font-size:13px;line-height:20px;padding:4px 12px;display:inline-flex;align-items:center;gap:6px}.cost-curr-btn:hover{border-color:var(--dsw-alias-state-business-primary)}.cost-curr-menu{position:absolute;z-index:100;top:calc(100% + 4px);right:0;min-width:190px;max-height:240px;overflow-y:auto;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-inverted);box-shadow:var(--dsw-shadow-lv3);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:2px}.cost-curr-item{background:none;border:none;border-radius:8px;box-sizing:border-box;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px;line-height:20px;padding:5px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;white-space:nowrap}.cost-curr-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.cost-curr-active{color:var(--dsw-alias-label-primary);font-weight:600}.cost-curr-tick{color:var(--dsw-alias-state-business-primary);flex:none}.cost-curr-rate{display:flex;flex-direction:column;gap:2px}.cost-curr-rate-value{color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}.cost-curr-rate-meta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.cost-curr-manual{align-items:center;gap:8px;display:flex;flex-wrap:wrap}.cost-curr-manual label{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}.cost-curr-manual input{width:120px;box-sizing:border-box;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code);font-size:12px;padding:3px 8px}')
 
     const ModelChip = (props) => React.createElement('span', { className: 'cost-dock-model' }, props.model, ' ', fmtCost(props.cost, props.cur))
@@ -187,9 +197,11 @@ return {
         React.createElement('table', { className: 'cost-table' },
           React.createElement('thead', null, React.createElement('tr', null,
             React.createElement('th', null, '时间'), React.createElement('th', null, '轮/步'), React.createElement('th', null, '模型'),
+            React.createElement('th', null, '时段'),
             React.createElement('th', { className: 'cost-num' }, '输入'), React.createElement('th', { className: 'cost-num' }, '输出'), React.createElement('th', { className: 'cost-num' }, '费用'))),
           React.createElement('tbody', null, calls.slice(0, 10).map((c, i) => React.createElement('tr', { key: String(i) },
             React.createElement('td', null, fmtTime(c.time)), React.createElement('td', null, '#' + c.turn + '.' + c.step), React.createElement('td', null, c.model),
+            React.createElement('td', { title: PERIOD_TIP[c.period] ?? String(c.period ?? '') }, PERIOD_LABEL[c.period] ?? '—'),
             React.createElement('td', { className: 'cost-num' }, fmtTok(c.input + c.write)), React.createElement('td', { className: 'cost-num' }, fmtTok(c.output)),
             React.createElement('td', { className: 'cost-num' }, fmtCost(c.cost, cur)))))))
     }
@@ -277,7 +289,7 @@ return {
                   onChange: (e) => setPrice(model, key, e.target.value === '' ? undefined : Number(e.target.value))
                 }))
             })))),
-        React.createElement('div', { className: 'cost-settings-label' }, '说明: 峰时 09-12/14-18(北京),按请求时刻计价;内置价见 deepseek-v4-flash/pro'))
+        React.createElement('div', { className: 'cost-settings-label' }, '说明: 工作日峰时 09-12/14-18(北京);8/23 00:00 起周末全天低谷价(此前周末仍按峰谷时段);9/10 12:00 起 Flash 系列执行新价(空闲 0.02/1/4,高峰翻倍;V4-Pro 官方价不变),此前时段的调用仍按当时价档计价;按请求时刻计价;内置价见 deepseek-v4-flash/pro'))
     }
     const CurrencyCard = (props) => {
       const cur = useCurrency()

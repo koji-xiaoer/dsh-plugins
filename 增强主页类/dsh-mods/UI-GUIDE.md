@@ -29,7 +29,7 @@ CSS 模块（类名前缀 `f7cQ9_`，style 标签 id `@deepseek-ai/dsh-client-ui
 - 包根：`/home/claude/.nvm/versions/node/v24.19.0/lib/node_modules/@deepseek-ai/dsh/`
 - 会话相关 UI：`node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js`
   - `ESTIMATED_PRICES`：内置价表（current/peak/offpeak 三套）
-  - `pricingPeriod(now)`：北京时区峰谷判定（8/17 前 current；09–12 / 14–18 峰时，其余谷时）
+  - `pricingPeriod(now)`：北京时区峰谷判定（8/17 前 current；工作日 09–12 / 14–18 峰时，其余谷时；8/23 00:00 起周六/周日全天低谷价，此前周末仍按峰谷时段）
   - `estimatedPriceSet` / `resolvePrice` / `formatPrice`：取价与展示
   - `CostEstimateRow` / `NotifyRow`：设置页两行卡片
 - 其他 UI 包：`node_modules/@deepseek-ai/dsh-client-ui-*` 下 `lib/client.js` 同理

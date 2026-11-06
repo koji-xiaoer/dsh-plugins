@@ -1,6 +1,6 @@
 --- node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-@@ -2357,6 +2357,206 @@
+@@ -2486,6 +2486,206 @@
  				this.busyEnter.set(section.busyEnter);
  			}
  		};
@@ -207,7 +207,7 @@
  		//#endregion
  		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
  		function r(e) {
-@@ -2787,6 +2987,80 @@
+@@ -2949,6 +3149,112 @@
  			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
  		}
  		/**
@@ -216,38 +216,70 @@
 +		* Per-model per-1M-token prices: cache-read input, cache-miss input (also
 +		* covers cache write), output. `current` applies before 2026-08-17 00:00
 +		* Beijing time, then DeepSeek switches to peak/off-peak pricing (peak:
-+		* 09:00-12:00 and 14:00-18:00 Beijing time). Unknown models fall back to
-+		* the v4-flash table.
++		* 09:00-12:00 and 14:00-18:00 Beijing time on weekdays). From
++		* 2026-08-23 00:00 Beijing time, Saturdays and Sundays are billed at the
++		* off-peak rate all day. Unknown models fall back to the v4-flash table.
 +		*/
++		// [billing-20260910] 2026-09-10 12:00 北京起 Flash 系列(flash / flash-vision-exp)降价:
++		// 空闲 命中 0.05→0.02、未命中 1.5→1、输出 4.5→4;高峰为空闲 2 倍(0.04/2/8)。
++		// 故新增 peak2/offpeak2 两档:历史事件仍按当时生效的旧档(peak/offpeak)计价,不用新价回溯。
++		// V4-Pro 官方价不变(peak2/offpeak2 与 peak/offpeak 同值)。
++		/** Price-tier switch: 2026-09-10 12:00 Beijing time (Flash series price cut). */
++		const PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z");
++		/** 时段键 → 旧档键回退,避免新档缺表时落到 current 这种跨代错价。 */
++		const PERIOD_FALLBACK = { peak2: "peak", offpeak2: "offpeak" };
 +		const ESTIMATED_PRICES = {
 +			"deepseek-v4-flash": {
 +				current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
 +				peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
-+				offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 }
++				offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++				peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++				offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
++			},
++			"deepseek-v4-flash-vision-exp": {
++				current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
++				peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
++				offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
++				peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
++				offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 }
 +			},
 +			"deepseek-v4-pro": {
 +				current: { cacheRead: 0.025, cacheMiss: 3, output: 6 },
 +				peak: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
-+				offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
++				offpeak: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 },
++				peak2: { cacheRead: 0.3, cacheMiss: 9, output: 27 },
++				offpeak2: { cacheRead: 0.15, cacheMiss: 4.5, output: 13.5 }
 +			}
 +		};
 +		const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
 +		const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");
++		/** Weekend off-peak switch: 2026-08-23 00:00 Beijing time (Sat/Sun billed at the off-peak rate all day). */
++		const WEEKEND_OFFPEAK_SINCE = Date.parse("2026-08-22T16:00:00Z");
 +		/**
 +		* Current pricing period in Beijing time: "current" before the
-+		* peak/off-peak switch date (2026-08-17), then "peak" during
-+		* 09:00-12:00 / 14:00-18:00 and "offpeak" otherwise.
++		* peak/off-peak switch date (2026-08-17), then "peak" during weekday
++		* 09:00-12:00 / 14:00-18:00, "offpeak" otherwise — and from
++		* 2026-08-23, "offpeak" all day on Saturdays and Sundays.
 +		* @param now - the reference instant.
 +		* @returns the period key.
 +		*/
 +		function pricingPeriod(now) {
 +			if (now < PEAK_PRICE_SINCE) return "current";
-+			const hour = Number(new Intl.DateTimeFormat("en-US", {
++			const parts = {};
++			for (const p of new Intl.DateTimeFormat("en-US", {
++				weekday: "short",
 +				hour: "numeric",
 +				hour12: false,
 +				timeZone: "Asia/Shanghai"
-+			}).format(now));
-+			return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
++			}).formatToParts(now)) parts[p.type] = p.value;
++			const hour = Number(parts.hour);
++			const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
++			// [billing-weekend] 周末(北京时间周六/周日)全天低谷价,不再区分峰谷时段
++			const peak = isWeekend && now >= WEEKEND_OFFPEAK_SINCE ? false : ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18));
++			// [billing-20260910] 9/10 12:00 北京起走降价后的新档
++			const tier2 = now >= PRICE_CHANGE_20260910;
++			if (peak) return tier2 ? "peak2" : "peak";
++			return tier2 ? "offpeak2" : "offpeak";
 +		}
 +		/**
 +		* Built-in price set for one model: the table for the current
@@ -288,7 +320,7 @@
  		* Approximate context occupancy, using the TUI's integer rounding and upper
  		* clamp. The numerator is `projectedTokens` — the provider sample carried
  		* forward over the surface's movement since — so compaction shows immediately
-@@ -2807,9 +3081,11 @@
+@@ -2969,9 +3275,11 @@
  				contextWindow: pressure.contextWindow
  			};
  		}
@@ -301,7 +333,7 @@
  			const projected = useProjection("sessionStats");
  			const stats = (0, react.useMemo)(() => projected ?? deriveStats(settledNodes), [projected, settledNodes]);
  			const groups = [];
-@@ -2835,6 +3111,52 @@
+@@ -2997,6 +3305,52 @@
  					output: formatTokens(usage.outputTokens)
  				}));
  			}
@@ -354,7 +386,7 @@
  			const line = groups.join(" | ");
  			const rootRef = (0, react.useRef)(null);
  			const [truncated, setTruncated] = (0, react.useState)(false);
-@@ -2853,11 +3175,20 @@
+@@ -3015,11 +3369,20 @@
  				};
  			}, [line]);
  			if (groups.length === 0) return null;
@@ -377,7 +409,7 @@
  				children: (0, react_jsx_runtime.jsx)("div", {
  					ref: rootRef,
  					className: StatsLine_module_css_default.root,
-@@ -3058,6 +3389,1636 @@
+@@ -3220,6 +3583,1678 @@
  			});
  		}
  		//#endregion
@@ -643,6 +675,72 @@
 +			if (model === "deepseek-v4-flash") return "var(--dsw-static-blue-450)";
 +			return "var(--dsw-static-neutral-bluish-400)";
 +		}
++		// [billing-meter-pop] 悬浮模型占比条 → 列表详情气泡(替代原生 title 提示):
++		// 每个模型一行(色点·名称·占比·金额),跟随鼠标、视口内钳位、超高可滚动。
++		function BillingMeterBar({ rows }) {
++			const [tip, setTip] = (0, react.useState)(null);
++			const total = rows.reduce((s, r) => s + r.cost, 0);
++			const move = (e) => {
++				const estH = Math.min(rows.length, 12) * 20 + 34;
++				const flip = e.clientY + 14 + estH > window.innerHeight;
++				setTip({
++					x: Math.max(8, Math.min(e.clientX + 14, window.innerWidth - 272)),
++					y: flip ? Math.max(8, e.clientY - estH - 10) : e.clientY + 14
++				});
++			};
++			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
++				children: [(0, react_jsx_runtime.jsx)("div", {
++					onMouseEnter: move,
++					onMouseMove: move,
++					onMouseLeave: () => setTip(null),
++					style: { margin: "-6px 0", padding: "6px 0", cursor: "default" },
++					children: (0, react_jsx_runtime.jsx)("div", {
++						className: BillingView_module_css_default.bar,
++						children: rows.map((r) => (0, react_jsx_runtime.jsx)("div", {
++							className: `${BillingView_module_css_default.segment} ${billingModelColor(r.key)}`,
++							style: { width: `${total > 0 ? r.cost / total * 100 : 0}%` }
++						}, r.key))
++					})
++				}), tip !== null && (0, react_jsx_runtime.jsx)("div", {
++					role: "tooltip",
++					style: {
++						position: "fixed",
++						left: tip.x,
++						top: tip.y,
++						zIndex: 9999,
++						width: 258,
++						maxHeight: "40vh",
++						overflowY: "auto",
++						boxSizing: "border-box",
++						background: "rgba(24,26,31,.96)",
++						color: "#e8ecf2",
++						border: "1px solid rgba(255,255,255,.1)",
++						borderRadius: 8,
++						padding: "6px 10px",
++						fontSize: 11,
++						lineHeight: "20px",
++						boxShadow: "0 8px 24px rgba(0,0,0,.35)",
++						pointerEvents: "none"
++					},
++					children: rows.map((r) => (0, react_jsx_runtime.jsxs)("div", {
++						style: { display: "flex", alignItems: "center", gap: 6 },
++						children: [(0, react_jsx_runtime.jsx)("span", {
++							className: `${BillingView_module_css_default.swatch} ${billingModelColor(r.key)}`,
++							style: { flex: "none", marginRight: 0 }
++						}), (0, react_jsx_runtime.jsx)("span", {
++							style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
++							children: r.name
++						}), (0, react_jsx_runtime.jsx)("span", {
++							style: { flex: "none", color: "rgba(232,236,242,.55)", fontVariantNumeric: "tabular-nums" },
++							children: `${total > 0 ? (r.cost / total * 100).toFixed(1) : "0.0"}%`
++						}), (0, react_jsx_runtime.jsx)("span", {
++							style: { flex: "none", marginLeft: 6, color: "#e8ecf2", fontVariantNumeric: "tabular-nums" },
++							children: formatYuan(r.cost)
++						})]
++					}, r.key))
++				})]
++			});
++		}
 +		/**
 +		* Billing view: a per-session cost statement fed by `session.list`
 +		* projections (`sessionStats`, `tokenUsage`, `tokenUsageByModel`). Rows
@@ -662,9 +760,11 @@
 +		// [billing-periods] 峰谷时段小标签:显示该会话各时段(8/17 前平价/峰时/谷时)
 +		// 的调用笔数与金额,悬停展示该时段生效单价(与逐笔计价同源,含自定义价)。
 +		const PERIOD_META = [
-+			{ key: "current", label: "平", tip: "8/17 前平价", color: "#94a3b8", bg: "rgba(148,163,184,.16)" },
-+			{ key: "peak", label: "峰", tip: "峰时 09-12/14-18(北京)", color: "#f97316", bg: "rgba(249,115,22,.15)" },
-+			{ key: "offpeak", label: "谷", tip: "谷时其余时段(北京)", color: "#38bdf8", bg: "rgba(56,189,248,.14)" }
++			{ key: "current", label: "平", tip: "过去时段 · 8/17 前平价", color: "#94a3b8", bg: "rgba(148,163,184,.16)" },
++			{ key: "peak", label: "峰旧", tip: "过去时段 · 8/17~9/10 12:00 工作日峰价(0.1/3/9)", color: "#fb923c", bg: "rgba(251,146,60,.16)" },
++			{ key: "offpeak", label: "谷旧", tip: "过去时段 · 8/17~9/10 12:00 谷价(0.05/1.5/4.5);8/23 起周末全天", color: "#22d3ee", bg: "rgba(34,211,238,.15)" },
++			{ key: "peak2", label: "峰", tip: "9/10 12:00 起新价 · 工作日峰时 09-12/14-18(北京):0.04/2/8", color: "#f97316", bg: "rgba(249,115,22,.15)" },
++			{ key: "offpeak2", label: "谷", tip: "9/10 12:00 起新价 · 空闲:0.02/1/4(工作日其余时段;周末全天)", color: "#38bdf8", bg: "rgba(56,189,248,.14)" }
 +		];
 +		function trimPrice(n) { return String(Number(n) || 0).replace(/\.?0+$/, "") }
 +		// [billing-periods-tip] 全局单气泡:同一时刻只允许一个提示气泡存在(后开即关前,
@@ -1153,21 +1253,9 @@
 +							className: BillingView_module_css_default.summaryMeta,
 +							children: t("billing.balance", { balance: formatYuan(balance.totalBalance) })
 +						})]
-+					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
-+						className: BillingView_module_css_default.bar,
-+						children: modelEntries.map(([model, entry]) => (0, react_jsx_runtime.jsx)("div", {
-+							className: `${BillingView_module_css_default.segment} ${billingModelColor(model)}`,
-+							style: { width: `${modelTotal > 0 ? entry.cost / modelTotal * 100 : 0}%` }
-+						}, model))
-+					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
-+						className: BillingView_module_css_default.legend,
-+						children: modelEntries.map(([model, entry]) => (0, react_jsx_runtime.jsxs)("span", {
-+							className: BillingView_module_css_default.legendItem,
-+							children: [(0, react_jsx_runtime.jsx)("span", {
-+								className: `${BillingView_module_css_default.swatch} ${billingModelColor(model)}`,
-+								"aria-hidden": true
-+							}), model, ` ${formatYuan(entry.cost)}`]
-+						}, model))
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)(BillingMeterBar, {
++						rows: modelEntries.map(([model, entry]) => ({ key: model, name: model, cost: entry.cost }))
++					// [billing-meter-pop] 图例已隐藏:模型构成详情由占比条悬浮列表承担。
 +					}), dayEntries.length > 0 && (0, react_jsx_runtime.jsx)("div", {
 +						className: CostCharts_module_css_default.chartCard,
 +						children: (0, react_jsx_runtime.jsx)(CostDayChart, {
@@ -1691,23 +1779,9 @@
 +								tool: formatDuration(stats.toolMs)
 +							})
 +						})]
-+					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
-+						className: BillingView_module_css_default.bar,
-+						children: modelEntries.map((entry) => (0, react_jsx_runtime.jsx)("div", {
-+							className: `${BillingView_module_css_default.segment} ${billingModelColor(entry.model)}`,
-+							style: {
-+								width: `${modelTotal > 0 && entry.cost !== null ? entry.cost / modelTotal * 100 : 0}%`
-+							}
-+						}, entry.model))
-+					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)("div", {
-+						className: BillingView_module_css_default.legend,
-+						children: modelEntries.map((entry) => (0, react_jsx_runtime.jsxs)("span", {
-+							className: BillingView_module_css_default.legendItem,
-+							children: [(0, react_jsx_runtime.jsx)("span", {
-+								className: `${BillingView_module_css_default.swatch} ${billingModelColor(entry.model)}`,
-+								"aria-hidden": true
-+							}), entry.model, ` ${formatYuan(entry.cost ?? 0)}`]
-+						}, entry.model))
++					}), modelEntries.length > 1 && (0, react_jsx_runtime.jsx)(BillingMeterBar, {
++						rows: modelEntries.map((entry) => ({ key: entry.model, name: entry.model, cost: entry.cost ?? 0 }))
++					// [billing-meter-pop] 图例已隐藏:模型构成详情由占比条悬浮列表承担。
 +					})]
 +				}), (0, react_jsx_runtime.jsx)("div", {
 +						className: BillingTabs_module_css_default.sectionTitle,
@@ -2014,16 +2088,16 @@
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
  		const css$18 = ".Sh0Q9G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Sh0Q9G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Sh0Q9G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Sh0Q9G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Sh0Q9G_triggerIcon{flex:none;display:inline-flex}.Sh0Q9G_triggerIcon svg{width:14px;height:14px}.Sh0Q9G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Sh0Q9G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Sh0Q9G_trigger:has(.Sh0Q9G_triggerIcon) .Sh0Q9G_triggerLabel{display:none}}.Sh0Q9G_chevronOpen{transform:rotate(180deg)}";
  		const tagId$18 = "@deepseek-ai/dsh-client-ui-conversation/PermissionSelect.module.css";
-@@ -3325,7 +5286,7 @@
- 			textRefs: [],
- 			hint: null
- 		};
+@@ -3566,7 +5601,7 @@
+ 				insertedLength: 0
+ 			} : void 0;
+ 		}
 -		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
 +		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, api, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
  			const input = useInput((s) => s);
  			const notice = useNotices((s) => s);
  			const lexicon = useLexicon((s) => s);
-@@ -3859,6 +5820,13 @@
+@@ -4108,6 +6143,13 @@
  											useProjection,
  											t
  										}),
@@ -2037,7 +2111,7 @@
  										interruptible && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
  											label: t("input.stop"),
  											side: "top",
-@@ -4015,6 +5983,854 @@
+@@ -4258,6 +6300,858 @@
  				})]
  			});
  		}
@@ -2114,7 +2188,11 @@
 +		];
 +		/** Locale key for one pricing-period name. */
 +		function costPeriodKey(period) {
-+			return period === "peak" ? "settings.cost.period.peak" : period === "offpeak" ? "settings.cost.period.offpeak" : "settings.cost.period.standard";
++			if (period === "peak") return "settings.cost.period.peak";
++			if (period === "offpeak") return "settings.cost.period.offpeak";
++			if (period === "peak2") return "settings.cost.period.peak2";
++			if (period === "offpeak2") return "settings.cost.period.offpeak2";
++			return "settings.cost.period.standard";
 +		}
 +		/**
 +		* General Settings row for the conversation cost estimate: an enabled
@@ -2308,7 +2386,7 @@
 +			const custom = prices[model];
 +			const base = estimatedPriceSet(model, now);
 +			const periodName = t(costPeriodKey(period));
-+			const periodClass = period === "peak" ? CostEstimateRow_module_css_default.periodPeak : period === "offpeak" ? CostEstimateRow_module_css_default.periodOffpeak : CostEstimateRow_module_css_default.periodStandard;
++			const periodClass = period === "peak" || period === "peak2" ? CostEstimateRow_module_css_default.periodPeak : period === "offpeak" || period === "offpeak2" ? CostEstimateRow_module_css_default.periodOffpeak : CostEstimateRow_module_css_default.periodStandard;
 +			return (0, react_jsx_runtime.jsxs)("div", {
 +				className: CostEstimateRow_module_css_default.card,
 +				children: [(0, react_jsx_runtime.jsxs)("div", {
@@ -2891,206 +2969,238 @@
 +		}
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/MessageItem.module.css.mjs
- 		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-label-primary);white-space:nowrap;vertical-align:baseline;background:#6187d838;border-radius:6px;margin:0 2px;padding:0 8px;font-size:.85em;line-height:1.6;display:inline-block}";
-@@ -4906,8 +7722,10 @@
- 			const rest = [];
- 			for (const block of content) {
- 				const b = block;
--				if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
--				else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
-+				if (b.type === "text" && typeof b.text === "string") {
-+					/* [image-relay-patch] hidden 标记的文本块（图片的 GLM 描述）不渲染 */
-+					if (b.hidden !== true) texts.push(b.text);
-+				} else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
- 				else rest.push(block);
- 			}
- 			return {
-@@ -5170,7 +7988,7 @@
- 		});
- 		//#endregion
- 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
--		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}";
-+		const css$11 = ".Md3f7G_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.Md3f7G_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .Md3f7G_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .Md3f7G_scroll{flex:none;min-height:auto;overflow:visible}.Md3f7G_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.Md3f7G_flowItem{min-width:0}.Md3f7G_flowItem:empty{display:none}.Md3f7G_callRow{border-radius:6px}.Md3f7G_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite Md3f7G_dsh-turn-status-shimmer;display:inline-flex}.Md3f7G_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes Md3f7G_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.Md3f7G_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.Md3f7G_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.Md3f7G_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.Md3f7G_older{justify-content:center;display:flex}.Md3f7G_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.Md3f7G_older button:disabled{cursor:default;opacity:.6}.Md3f7G_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .Md3f7G_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.Md3f7G_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.Md3f7G_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}.Md3f7G_foldGroup{flex-direction:column;gap:16px;min-width:0;display:flex}.Md3f7G_foldBar{box-sizing:border-box;width:100%;height:30px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:var(--dsw-alias-interactive-bg-hover);border:none;border-radius:8px;align-items:center;gap:6px;padding:0 10px;font-size:12px;line-height:20px;display:flex}.Md3f7G_foldBar:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-secondary)}.Md3f7G_foldChevron{flex:none;display:inline-flex;transition:transform .12s}.Md3f7G_foldChevronOpen{transform:rotate(180deg)}.Md3f7G_foldText{min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.Md3f7G_foldBody{flex-direction:column;gap:16px;min-width:0;display:flex}";
- 		const tagId$11 = "@deepseek-ai/dsh-client-ui-conversation/ChatView.module.css";
- 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
- 			const tag = document.createElement("style");
-@@ -5185,6 +8003,12 @@
- 			"callRow": "Md3f7G_callRow",
- 			"turnStatusClock": "Md3f7G_turnStatusClock",
- 			"flowItem": "Md3f7G_flowItem",
-+			"foldBar": "Md3f7G_foldBar",
-+			"foldBody": "Md3f7G_foldBody",
-+			"foldChevron": "Md3f7G_foldChevron",
-+			"foldChevronOpen": "Md3f7G_foldChevronOpen",
-+			"foldGroup": "Md3f7G_foldGroup",
-+			"foldText": "Md3f7G_foldText",
- 			"scroll": "Md3f7G_scroll",
- 			"hint": "Md3f7G_hint",
- 			"toBottomSlot": "Md3f7G_toBottomSlot",
-@@ -5240,6 +8064,21 @@
- 			});
- 		});
- 		//#endregion
-+		/** Collapsed-turn preview: the final reply's text blocks only (reasoning stays folded). */
-+		const FoldReplyPreview = (0, react.memo)(function FoldReplyPreview({ nodeKey, useSession, loadImage, fileMentions, t }) {
-+			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
-+			if (node === void 0 || node.kind !== "assistant-step") return null;
-+			const data = node.data;
-+			const blocks = data.blocks.filter((block) => block.kind !== "reasoning");
-+			return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {
-+				blocks,
-+				streaming: false,
-+				interrupted: data.status === "interrupted",
-+				loadImage,
-+				mentions: void 0,
-+				t
+ 		const css$15 = ".gdEzaW_userRow{flex-direction:column;align-items:flex-end;gap:6px;display:flex}.gdEzaW_userStack{flex-direction:column;align-items:flex-end;gap:8px;min-width:0;max-width:min(525px,82%);display:flex}.gdEzaW_bubble{background:var(--dsw-specific-bubble);max-width:100%;color:var(--dsw-alias-label-primary);border-radius:22px;padding:10px 16px;font-size:16px;line-height:24px}.gdEzaW_referenceSummary{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.gdEzaW_contextRow,.gdEzaW_compactionRow{padding:2px 0}.gdEzaW_compactionButton{width:100%;min-width:0;height:24px;color:inherit;font:inherit;text-align:left;background:0 0;border:none;border-radius:6px;align-items:center;padding:0;display:flex}.gdEzaW_compactionButton:not(:disabled){cursor:pointer}.gdEzaW_compactionButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.gdEzaW_compactionLeading{width:16px;height:16px;color:var(--dsw-alias-label-secondary);flex:none;place-items:center;margin-right:6px;display:inline-grid}.gdEzaW_compactionContextIcon,.gdEzaW_compactionDisclosureIcon{grid-area:1/1;justify-content:center;align-items:center;display:inline-flex}.gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionContextIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionContextIcon{opacity:0}.gdEzaW_compactionButton:not(:disabled):hover .gdEzaW_compactionDisclosureIcon,.gdEzaW_compactionButton:not(:disabled):focus-visible .gdEzaW_compactionDisclosureIcon{opacity:1}.gdEzaW_compactionTitle{color:var(--dsw-alias-label-primary-dimmed);flex:none;font-size:14px;line-height:24px}.gdEzaW_compactionSep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.gdEzaW_compactionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.gdEzaW_compactionBody{color:var(--dsw-alias-label-tertiary);padding:4px 0 4px 22px;font-size:14px;line-height:24px}.gdEzaW_retryRow{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}.gdEzaW_retrySummary{width:fit-content;color:inherit;cursor:pointer;user-select:none;border-radius:3px;align-items:center;gap:7px;padding:2px 0;list-style:none;display:inline-flex}.gdEzaW_retrySummary::-webkit-details-marker{display:none}.gdEzaW_retrySummary:after{content:\"\";opacity:.8;border-bottom:1.5px solid;border-right:1.5px solid;width:6px;height:6px;transition:transform .12s;transform:rotate(-45deg)}.gdEzaW_retrySummary:hover{color:var(--dsw-alias-label-secondary)}.gdEzaW_retrySummary:focus-visible{outline:1.5px solid var(--dsw-alias-button-info-fill);outline-offset:2px}.gdEzaW_retryText{color:inherit}.gdEzaW_retryRow[data-active] .gdEzaW_retryText{background:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-tertiary) 40%, var(--dsw-alias-label-secondary) 50%, var(--dsw-alias-label-tertiary) 60%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-position:100%;background-size:200% 100%;background-clip:text;animation:1.6s ease-in-out infinite gdEzaW_retry-shimmer}.gdEzaW_retryRow[open] .gdEzaW_retrySummary:after{transform:rotate(45deg)}.gdEzaW_retryDetails{overflow-wrap:anywhere;gap:2px;margin-top:3px;padding-left:14px;font-size:12px;line-height:18px;display:grid}.gdEzaW_retryDetailLabel{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorRow{grid-template-columns:10px minmax(0,1fr) auto;align-items:start;gap:8px;padding:2px 0;font-size:13px;line-height:20px;display:grid}.gdEzaW_turnErrorDot{margin-top:5px}.gdEzaW_turnErrorCopy{overflow-wrap:anywhere;min-width:0}.gdEzaW_turnErrorTitle{color:var(--dsw-alias-state-error-primary);margin-right:6px;font-weight:600}.gdEzaW_turnErrorMessage{color:var(--dsw-alias-label-secondary)}.gdEzaW_turnErrorCode{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block-small)}.gdEzaW_maxTokensTitle{color:var(--dsw-alias-state-warn-primary);margin-right:6px;font-weight:600}@keyframes gdEzaW_retry-shimmer{0%{background-position:100%}to{background-position:0}}@media (prefers-reduced-motion:reduce){.gdEzaW_retryRow[data-active] .gdEzaW_retryText{color:inherit;background:0 0;animation:none}}.gdEzaW_refChip{color:var(--dsw-alias-state-business-primary);white-space:nowrap;vertical-align:baseline;align-items:center;gap:4px;margin:0 2px;font-weight:500;display:inline-flex}.gdEzaW_refIcon{flex:none}";
+@@ -5283,6 +8177,39 @@
+ 		* scan as the composer, minus the lexicon: sent tokens were validated at
+ 		* compose time, so shape alone decorates).
+ 		*/
++		/** session-share chip:按分享ID解析标题,展示「会话:标题前几字…」,悬停显示 ID+全标题。 */
++		function ShareRefChip({ id }) {
++			const chipState = (0, react.useState)(null);
++			const info = chipState[0];
++			const setInfo = chipState[1];
++			(0, react.useEffect)(() => {
++				let alive = true;
++				try {
++					fetch("/sshp/resolve?shareId=" + encodeURIComponent(id)).then((r) => r.json()).then((j) => {
++						if (alive && j !== null && typeof j === "object" && j.ok === true) setInfo(j);
++					}).catch(() => {});
++				} catch {}
++				return () => { alive = false };
++			}, [id]);
++			const title = info !== null && typeof info.title === "string" ? info.title : "";
++			const shown = title === "" ? id : "会话:" + (title.length > 10 ? title.slice(0, 10) + "…" : title);
++			return (0, react_jsx_runtime.jsx)("span", {
++				className: MessageItem_module_css_default.refChip,
++				"data-ref-chip": "share",
++				title: id + (title === "" ? "" : " 《" + title + "》"),
++				style: {
++					borderRadius: "999px",
++					padding: "1px 8px",
++					border: "1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent)",
++					background: "color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent)",
++					color: "var(--dsw-alias-label-primary)",
++					fontSize: "13px",
++					lineHeight: "18px"
++				},
++				children: shown
 +			});
-+		});
- 		//#region lib/types/client/chat/ChatView.js
- 		/** Active column host when present; otherwise the view-local scroller. */
- 		function scrollerOf(from) {
-@@ -5329,6 +8168,38 @@
++		}
++
+ 		function projectUserText(text, sessionLabels) {
+ 			const ranges = [];
+ 			for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
+@@ -5312,16 +8239,28 @@
+ 					kind: "plain"
+ 				});
+ 			}
++			// session-share chip: shr-xxxxxx 分享ID 渲染为胶囊芯片(与 /路径、@提及 同机制)
++			const shareRe = /\bshr-[a-z0-9]{4,}/giu;
++			let sm;
++			while ((sm = shareRe.exec(text)) !== null) {
++				const tokenStart = sm.index;
++				ranges.push({
++					start: tokenStart,
++					end: tokenStart + sm[0].length,
++					label: sm[0],
++					kind: "share"
++				});
++			}
+ 			ranges.sort((a, b) => a.start - b.start || (a.kind === b.kind ? b.end - a.end : a.kind === "session" ? -1 : 1));
+ 			const parts = [];
+ 			let cursor = 0;
+ 			for (const range of ranges) {
+ 				if (range.start < cursor) continue;
+ 				const { start: tokenStart, end, label, kind } = range;
+-				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor, tokenStart) }, cursor));
++				if (tokenStart > cursor) parts.push((0, react_jsx_runtime.jsx)("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: text.slice(cursor, tokenStart) }, cursor));
+ 				const referenceKind = kind === "session" ? "session" : label.startsWith("@") ? label.endsWith("/") ? "folder" : "file" : void 0;
+ 				const displayLabel = referenceKind === void 0 ? label : referenceKind === "session" ? label.slice(1) : label.slice(1).replace(/^"|"$/gu, "").split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1);
+-				parts.push((0, react_jsx_runtime.jsxs)("span", {
++				parts.push(kind === "share" ? (0, react_jsx_runtime.jsx)(ShareRefChip, { id: label }, tokenStart) : (0, react_jsx_runtime.jsxs)("span", {
+ 					className: MessageItem_module_css_default.refChip,
+ 					"data-ref-chip": referenceKind ?? "skill",
+ 					title: label,
+@@ -5334,7 +8273,7 @@
+ 				cursor = end;
+ 			}
+ 			if (parts.length === 0) return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text });
+-			if (cursor < text.length) parts.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MessageText, { text: text.slice(cursor) }, cursor));
++			if (cursor < text.length) parts.push((0, react_jsx_runtime.jsx)("span", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: text.slice(cursor) }, cursor));
+ 			return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: parts });
+ 		}
+ 		/** Right-aligned bubble shared by user and steering rows. */
+@@ -5627,7 +8566,7 @@
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
-+		/** Node kinds folded as level-2 content beneath the preceding level-1 node. */
-+		const FOLD_LEVEL2_KINDS = new Set(["assistant-step", "tool-call", "tool-result", "model-retry", "turn-tail", "turn-error", "turn-max-tokens"]);
-+		/** Split the flat node order into fold groups anchored at level-1 nodes (user messages & friends). */
-+		function foldGroups(order, nodeStore) {
-+			const groups = [];
-+			let current = null;
-+			for (const key of order) {
-+				const kind = nodeStore.get(key)?.kind;
-+				if (kind !== void 0 && !FOLD_LEVEL2_KINDS.has(kind)) {
-+					current = { key, children: [] };
-+					groups.push(current);
-+				} else if (current === null) {
-+					groups.push({ key: null, children: [key] });
-+				} else {
-+					current.children.push(key);
-+				}
-+			}
-+			return groups;
-+		}
-+		/** Collapsed-group summary line: "回复 2 · 工具调用 5 · 结果 5" (the previewed final reply is excluded). */
-+		function foldSummary(children, nodeStore, t, previewKey) {
-+			const counts = new Map();
-+			for (const key of children) {
-+				if (key === previewKey) continue;
-+				const kind = nodeStore.get(key)?.kind;
-+				if (kind !== void 0) counts.set(kind, (counts.get(kind) ?? 0) + 1);
-+			}
-+			const labelOf = (kind) => kind === "assistant-step" ? t("chat.fold.reply") : kind === "tool-call" ? t("chat.fold.tool") : kind === "tool-result" ? t("chat.fold.result") : kind === "model-retry" ? t("chat.fold.retry") : kind === "turn-tail" ? t("chat.fold.tail") : kind === "turn-error" || kind === "turn-max-tokens" ? t("chat.fold.error") : kind;
-+			const parts = [];
-+			for (const [kind, count] of counts) parts.push(`${labelOf(kind)} ${count}`);
-+			return parts.length > 0 ? parts.join(" · ") : "";
-+		}
- 		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
+-		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
++		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, previewFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
  			const order = useSession((s) => s.chat.order);
  			const nodeStore = useSession((s) => s.chat.nodes);
-@@ -5364,6 +8235,18 @@
- 			const firstSeq = firstKey === void 0 ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
- 			const lastKey = order.at(-1) ?? null;
- 			const lastNode = lastKey === null ? void 0 : nodeStore.get(lastKey);
-+			const groups = (0, react.useMemo)(() => foldGroups(order, nodeStore), [order, nodeStore]);
-+			const [foldOpenKeys, setFoldOpenKeys] = (0, react.useState)(() => new Set());
-+			const lastGroupKey = groups.length > 0 ? groups[groups.length - 1].key : null;
-+			const isFoldOpen = (group) => group.key === null || group.key === lastGroupKey || foldOpenKeys.has(group.key);
-+			const toggleFold = (key) => {
-+				setFoldOpenKeys((prev) => {
-+					const next = new Set(prev);
-+					if (next.has(key)) next.delete(key);
-+					else next.add(key);
-+					return next;
+ 			const timeline = useSession((s) => s.chat.timeline);
+@@ -5641,11 +8580,18 @@
+ 			const selectedCallId = useStore((s) => s.selection?.callId);
+ 			const [fileOpenError, setFileOpenError] = (0, react.useState)(null);
+ 			const [fileOpenBusy, setFileOpenBusy] = (0, react.useState)(false);
++			// [file-preview] 会话内只读预览：文本/Markdown 文档不再依赖宿主 xdg-open。
++			const [filePreview, setFilePreview] = (0, react.useState)(null);
+ 			const fileOpenRequest = (0, react.useRef)(0);
+ 			const requestOpenFile = (0, react.useCallback)((path) => {
+ 				const id = ++fileOpenRequest.current;
+ 				setFileOpenBusy(true);
+-				openFile(path).then(() => {
++				const inPreview = typeof previewFile === "function" && (isPreviewableTextPath(path) || isPreviewableEmbedPath(path));
++				const attempt = inPreview ? previewFile(path).then((view) => {
++					if (id !== fileOpenRequest.current) return;
++					setFilePreview(view);
++				}) : openFile(path);
++				attempt.then(() => {
+ 					if (id !== fileOpenRequest.current) return;
+ 					setFileOpenError(null);
+ 					setFileOpenBusy(false);
+@@ -5657,7 +8603,7 @@
+ 					});
+ 					setFileOpenBusy(false);
+ 				});
+-			}, [openFile, t]);
++			}, [openFile, previewFile, t]);
+ 			const closeFileOpenError = (0, react.useCallback)(() => {
+ 				fileOpenRequest.current += 1;
+ 				setFileOpenError(null);
+@@ -5903,6 +8849,17 @@
+ 						requestOpenFile(fileOpenError.path);
+ 					},
+ 					t
++				}), filePreview !== null && (0, react_jsx_runtime.jsx)(FilePreviewDialog, {
++					path: filePreview.path,
++					name: filePreview.name,
++					content: filePreview.content,
++					encoding: filePreview.encoding,
++					mime: filePreview.mime,
++					onClose: () => {
++						fileOpenRequest.current += 1;
++						setFilePreview(null);
++					},
++					t
+ 				})]
+ 			});
+ 		}
+@@ -5928,6 +8885,93 @@
+ 				})] })
+ 			});
+ 		}
++		/** [file-preview] Text documents the conversation previews in-browser instead of handing to a native opener. */
++		const PREVIEWABLE_TEXT_EXTENSIONS = new Set(["md", "markdown", "mdx", "txt", "log", "json", "yaml", "yml", "csv", "tsv", "xml", "ini", "cfg", "conf", "toml", "env", "properties", "gitignore", "dockerfile", "makefile", "bat", "ps1", "r", "jl", "lua", "pl", "dart", "scala", "groovy", "hs", "erl", "ex", "exs", "clj", "vim", "tf", "proto", "graphql", "gql", "sol", "vue", "svelte", "astro"]);
++		/** [file-preview] Code extensions previewing as highlighted fenced blocks. */
++		const PREVIEWABLE_CODE_EXTENSIONS = new Set(["js", "mjs", "cjs", "ts", "jsx", "tsx", "cts", "mts", "py", "pyw", "rb", "go", "rs", "java", "c", "h", "cpp", "hpp", "cc", "hh", "cs", "php", "swift", "kt", "kts", "sql", "sh", "bash", "zsh", "fish", "css", "scss", "less", "styl", "html", "htm", "xhtml", "asmx", "asm", "s", "m", "mm"]);
++		/** [file-preview] Binary extensions the host serves base64 for in-browser embedding (images / pdf). */
++		const PREVIEWABLE_EMBED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "pdf"]);
++		/** [file-preview] Extension of one path, lowercased; empty when the path names none. */
++		function previewExtensionOf(path) {
++			if (isFolderOpenPath(path) || !path.includes(".")) return "";
++			return path.slice(path.lastIndexOf(".") + 1).toLowerCase();
++		}
++		/** [file-preview] Whether one chat file reference should preview in-browser as text/code. */
++		function isPreviewableTextPath(path) {
++			const ext = previewExtensionOf(path);
++			return PREVIEWABLE_TEXT_EXTENSIONS.has(ext) || PREVIEWABLE_CODE_EXTENSIONS.has(ext);
++		}
++		/** [file-preview] Whether one chat file reference should preview in-browser embedded (image/pdf). */
++		function isPreviewableEmbedPath(path) {
++			return PREVIEWABLE_EMBED_EXTENSIONS.has(previewExtensionOf(path));
++		}
++		/**
++		* [file-preview] In-conversation read-only document preview: markdown renders through the
++		* shared MarkdownText face, code rides a fenced block for highlighting, and images / pdf
++		* embed via data URL — so a click on a document chip never depends on the Host having a
++		* desktop opener (headless Linux has none).
++		*/
++		const cssFilePreviewDialog = ".FpVw_dialog{width:min(960px,calc(100vw - 48px));max-height:calc(100vh - 80px);}";
++		const tagIdFilePreviewDialog = "@deepseek-ai/dsh-client-ui-conversation/FilePreviewDialog.module.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagIdFilePreviewDialog) + "]") === null) {
++			const styleTag = document.createElement("style");
++			styleTag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
++			styleTag.dataset.pluginCss = tagIdFilePreviewDialog;
++			styleTag.textContent = cssFilePreviewDialog;
++			document.head.appendChild(styleTag);
++		}
++		var FilePreviewDialog_module_css_default = { dialog: "FpVw_dialog" };
++		function FilePreviewDialog({ path, name, content, encoding, mime, onClose, t }) {
++			const ext = previewExtensionOf(name);
++			let body;
++			if (encoding === "base64" && typeof content === "string") {
++				const dataUrl = `data:${mime ?? "application/octet-stream"};base64,${content}`;
++				body = (mime ?? "").startsWith("image/") ? (0, react_jsx_runtime.jsx)("img", {
++					src: dataUrl,
++					alt: name,
++					style: { maxWidth: "100%", maxHeight: "62vh", height: "auto", display: "block", margin: "0 auto", borderRadius: "8px" }
++				}) : (0, react_jsx_runtime.jsx)("iframe", {
++					src: dataUrl,
++					title: name,
++					style: { width: "100%", height: "62vh", border: "none", borderRadius: "8px", background: "#fff" }
 +				});
-+			};
- 			const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null;
- 			const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ""}`;
- 			const toBottom = (el) => {
-@@ -5501,6 +8384,61 @@
- 				}
- 				loadOlder();
- 			};
-+			const renderSeat = (nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
-+				nodeKey,
-+				useSession,
-+				selectedCallId,
-+				cwd,
-+				openFile,
-+				inspectCall,
-+				forkAt,
-+				loadImage,
-+				fileMentions,
-+				renderSlot,
-+				t
-+			}, nodeKey);
-+			const lastReplyKey = (children) => {
-+				let last = null;
-+				for (const key of children) {
-+					if (nodeStore.get(key)?.kind === "assistant-step") last = key;
-+				}
-+				return last;
-+			};
-+			const renderFoldGroup = (group) => {
-+				const open = isFoldOpen(group);
-+				const previewKey = open ? null : lastReplyKey(group.children);
-+				return (0, react_jsx_runtime.jsxs)("div", {
-+					className: ChatView_module_css_default.flowItem,
-+					"data-chat-fold-group": group.key,
-+					children: [renderSeat(group.key), group.children.length > 0 && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
-+						children: [(0, react_jsx_runtime.jsx)("button", {
-+							type: "button",
-+							className: ChatView_module_css_default.foldBar,
-+							"aria-expanded": open,
-+							"aria-label": t(open ? "chat.fold.toggleClose" : "chat.fold.toggleOpen"),
-+							onClick: () => {
-+								toggleFold(group.key);
-+							},
-+							children: [(0, react_jsx_runtime.jsx)("span", {
-+								className: clsx(ChatView_module_css_default.foldChevron, open && ChatView_module_css_default.foldChevronOpen),
-+								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
-+							}), (0, react_jsx_runtime.jsx)("span", {
-+								className: ChatView_module_css_default.foldText,
-+								children: foldSummary(group.children, nodeStore, t, previewKey)
-+							})]
-+						}), open ? (0, react_jsx_runtime.jsx)("div", {
-+							className: ChatView_module_css_default.foldBody,
-+							children: group.children.map(renderSeat)
-+						}) : previewKey !== null && (0, react_jsx_runtime.jsx)(FoldReplyPreview, {
-+							nodeKey: previewKey,
-+							useSession,
-+							loadImage,
-+							fileMentions,
-+							t
-+						})]
-+					})]
-+				}, group.key);
-+			};
- 			return (0, react_jsx_runtime.jsx)("div", {
- 				className: ChatView_module_css_default.root,
- 				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -5531,19 +8469,7 @@
- 									children: loadingOlder ? t("loading") : t("chat.loadOlder")
- 								})
- 							}),
--							order.map((nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {
--								nodeKey,
--								useSession,
--								selectedCallId,
--								cwd,
--								openFile,
--								inspectCall,
--								forkAt,
--								loadImage,
--								fileMentions,
--								renderSlot,
--								t
--							}, nodeKey)),
-+							groups.map((group) => group.key === null ? group.children.map(renderSeat) : renderFoldGroup(group)),
- 							running && (0, react_jsx_runtime.jsx)(TurnStatus, {
- 								startTime: runningTurnStart,
- 								t
-@@ -5827,10 +8753,128 @@
++			} else if (ext === "md" || ext === "markdown" || ext === "mdx") {
++				body = (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { text: content });
++			} else {
++				let fence = "```";
++				while (content.includes(fence)) fence += "`";
++				body = (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { text: `${fence}${ext}\n${content}\n${fence}` });
++			}
++			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++				open: true,
++				onClose,
++				closeLabel: t("close"),
++				title: name,
++				description: t("filePreview.title"),
++				className: FilePreviewDialog_module_css_default.dialog,
++				footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++					variant: "outline",
++					className: ChatView_module_css_default.modalAction,
++					title: path,
++					onClick: onClose,
++					children: t("close")
++				})] }),
++				children: (0, react_jsx_runtime.jsx)("div", {
++					style: {
++						boxSizing: "border-box",
++						maxHeight: "min(66vh, 620px)",
++						overflowY: "auto",
++						overflowX: "auto",
++						border: "1px solid var(--dsw-alias-border-l2)",
++						borderRadius: "12px",
++						background: "var(--dsw-alias-bg-base)",
++						padding: encoding === "base64" ? "10px" : "14px 16px",
++						marginTop: "4px"
++					},
++					children: body
++				})
++			});
++		}
+ 		//#endregion
+ 		//#region lib/types/client/contract/slots.js
+ 		/**
+@@ -6185,6 +9229,126 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "缓存命中 {percent}%",
  			"stats.tokens": "输入 {input} tok · 输出 {output} tok",
@@ -3150,22 +3260,20 @@
 +			"billing.back": "返回账单",
 +			"billing.balance": "账户余额 {balance}",
 +			"cost.write": "缓存写入",
- 			"settings.enter.title": "繁忙时 Enter 键行为",
- 			"settings.enter.description": "仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为",
- 			"settings.enter.queue": "排队发送",
- 			"settings.enter.steer": "插话发送",
 +			"settings.cost.title": "费用预估",
-+			"settings.cost.description": "在会话统计栏显示预估费用；价格留空则用内置价（8/17 后按北京时区自动峰谷价）",
++			"settings.cost.description": "在会话统计栏显示预估费用；价格留空则用内置价（8/17 起按北京时区自动峰谷价；8/23 00:00 起周末全天低谷价，此前周末仍按峰谷时段计价）",
 +			"settings.cost.enable": "显示预估费用",
 +			"settings.cost.cacheRead": "缓存命中",
 +			"settings.cost.cacheMiss": "未命中",
 +			"settings.cost.output": "输出",
 +			"settings.cost.period.standard": "标准价",
-+			"settings.cost.period.peak": "峰时价",
-+			"settings.cost.period.offpeak": "谷时价",
++			"settings.cost.period.peak": "峰时价 · 过去时段(8/17~9/10)",
++			"settings.cost.period.peak2": "峰时价 · 9/10 12:00 起新价",
++			"settings.cost.period.offpeak": "谷时价 · 过去时段(8/17~9/10)",
++			"settings.cost.period.offpeak2": "谷时价 · 9/10 12:00 起新价",
 +			"settings.cost.period.now": "当前适用：",
-+			"settings.cost.period.meta": "峰时 09:00–12:00 / 14:00–18:00（北京时间）",
-+			"settings.cost.period.metaStandard": "8/17 起按北京时间自动切换峰谷价",
++			"settings.cost.period.meta": "工作日峰时 09:00–12:00 / 14:00–18:00；8/23 00:00（北京）起周六/周日全天低谷价；9/10 12:00 起 Flash 系列执行新价（空闲 0.02/1/4，高峰翻倍），过去时段仍按当时价档计",
++			"settings.cost.period.metaStandard": "8/17 起按北京时间自动切换峰谷价；8/23 起周末全天低谷价",
 +			"settings.cost.unit": "¥/M",
 +			"settings.cost.builtinHint": "内置价（{period}）：¥{price} / 百万 tokens",
 +			"settings.cost.builtin": "内置 ¥{price}",
@@ -3216,25 +3324,19 @@
 +			"settings.notify.customTooLarge": "文件超过 1 MB，请换一个更短的音频",
 +			"settings.notify.customReadError": "读取音频文件失败，请重试",
 +			"settings.notify.titleDesc": "网页标题实时显示运行状态",
- 			"access.confirm.title": "确认启用 Full access？",
- 			"access.confirm.description": "启用 Full access 后，agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
- 			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
-@@ -5857,6 +8901,14 @@
- 			"chat.loadError": "历史加载失败：{message}（{code}）",
- 			"chat.loadOlder": "加载更早",
- 			"chat.toBottom": "回到底部",
-+			"chat.fold.reply": "回复",
-+			"chat.fold.tool": "工具调用",
-+			"chat.fold.result": "结果",
-+			"chat.fold.retry": "重试",
-+			"chat.fold.tail": "收尾",
-+			"chat.fold.error": "错误",
-+			"chat.fold.toggleOpen": "展开本轮详情",
-+			"chat.fold.toggleClose": "收起本轮详情",
+ 			"settings.enter.title": "繁忙时 Enter 键行为",
+ 			"settings.enter.description": "仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为",
+ 			"settings.enter.queue": "排队发送",
+@@ -6222,6 +9386,8 @@
+ 			"fileOpen.unknown": "无法打开此文件",
+ 			"fileOpen.folderTitle": "无法打开文件夹",
+ 			"fileOpen.folderUnknown": "无法打开此文件夹",
++			"filePreview.title": "文档预览（只读）",
++			"filePreview.openOriginal": "仍用系统打开",
  			"message.extraBlock": "附加内容块",
  			"message.contextInjection": "上下文注入",
  			"message.contextRecall": "跨会话召回",
-@@ -5992,10 +9044,127 @@
+@@ -6361,6 +9527,125 @@
  			"stats.tokensPerSecond": "{throughput} tok/s",
  			"stats.cacheHit": "Cache hit {percent}%",
  			"stats.tokens": "Input {input} tok · Output {output} tok",
@@ -3293,22 +3395,20 @@
 +			"billing.back": "Back to statement",
 +			"billing.balance": "Account balance {balance}",
 +			"cost.write": "Cache write",
- 			"settings.enter.title": "Enter behavior while busy",
- 			"settings.enter.description": "Busy only; Cmd/Ctrl+Enter uses the other behavior",
- 			"settings.enter.queue": "Queue",
- 			"settings.enter.steer": "Steer",
 +			"settings.cost.title": "Cost estimate",
-+			"settings.cost.description": "Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak after Aug 17, Beijing time)",
++			"settings.cost.description": "Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak from Aug 17, Beijing time; off-peak all day on weekends from Aug 23 00:00, earlier weekends still use peak/off-peak hours)",
 +			"settings.cost.enable": "Show estimated cost",
 +			"settings.cost.cacheRead": "cache read",
 +			"settings.cost.cacheMiss": "cache miss",
 +			"settings.cost.output": "output",
 +			"settings.cost.period.standard": "Standard rate",
-+			"settings.cost.period.peak": "Peak rate",
-+			"settings.cost.period.offpeak": "Off-peak rate",
++			"settings.cost.period.peak": "Peak rate · past (Aug 17–Sep 10)",
++			"settings.cost.period.peak2": "Peak rate · from Sep 10 12:00",
++			"settings.cost.period.offpeak": "Off-peak rate · past (Aug 17–Sep 10)",
++			"settings.cost.period.offpeak2": "Off-peak rate · from Sep 10 12:00",
 +			"settings.cost.period.now": "Currently: ",
-+			"settings.cost.period.meta": "Peak 09:00–12:00 / 14:00–18:00 (Beijing time)",
-+			"settings.cost.period.metaStandard": "Auto peak/off-peak from Aug 17, Beijing time",
++			"settings.cost.period.meta": "Weekday peak 09:00–12:00 / 14:00–18:00; from Aug 23 00:00 (Beijing) off-peak all day on weekends; from Sep 10 12:00 the Flash series uses the new rates (0.02/1/4 off-peak, doubled at peak), earlier calls keep the rates in force then",
++			"settings.cost.period.metaStandard": "Auto peak/off-peak from Aug 17; off-peak all day on weekends from Aug 23, Beijing time",
 +			"settings.cost.unit": "¥/M",
 +			"settings.cost.builtinHint": "Built-in rate ({period}): ¥{price} per 1M tokens",
 +			"settings.cost.builtin": "built-in ¥{price}",
@@ -3359,25 +3459,19 @@
 +			"settings.notify.customTooLarge": "File exceeds 1 MB — pick a shorter clip",
 +			"settings.notify.customReadError": "Could not read the audio file — please retry",
 +			"settings.notify.titleDesc": "Live session status in the page title",
- 			"access.confirm.title": "Enable Full access?",
- 			"access.confirm.description": "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
- 			"access.confirm.acknowledge": "I understand the risks and want to continue",
-@@ -6022,6 +9191,14 @@
- 			"chat.loadError": "Failed to load history: {message} ({code})",
- 			"chat.loadOlder": "Load earlier",
- 			"chat.toBottom": "Back to bottom",
-+			"chat.fold.reply": "reply",
-+			"chat.fold.tool": "tool call",
-+			"chat.fold.result": "result",
-+			"chat.fold.retry": "retry",
-+			"chat.fold.tail": "tail",
-+			"chat.fold.error": "error",
-+			"chat.fold.toggleOpen": "Expand this turn",
-+			"chat.fold.toggleClose": "Collapse this turn",
+ 			"settings.enter.title": "Enter behavior while busy",
+ 			"settings.enter.description": "Busy only; Cmd/Ctrl+Enter uses the other behavior",
+ 			"settings.enter.queue": "Queue",
+@@ -6398,6 +9683,8 @@
+ 			"fileOpen.unknown": "Couldn’t open this file",
+ 			"fileOpen.folderTitle": "Couldn’t open folder",
+ 			"fileOpen.folderUnknown": "Couldn’t open this folder",
++			"filePreview.title": "File preview (read-only)",
++			"filePreview.openOriginal": "Open with system",
  			"message.extraBlock": "Extra content block",
  			"message.contextInjection": "Context injection",
  			"message.contextRecall": "Session recall",
-@@ -9460,6 +12637,7 @@
+@@ -9913,6 +13200,7 @@
  			const workspaces = ctx.workspaces;
  			const layout = ctx.layout;
  			const slots = ctx.slots;
@@ -3385,7 +3479,7 @@
  			registerConversationNodes(ctx);
  			registerChatNodeRenderers(ctx);
  			ctx.effect(() => ctx.locale.register(NS, {
-@@ -9481,6 +12659,70 @@
+@@ -9934,6 +13222,70 @@
  					}
  				})
  			}, EnterBehaviorRow));
@@ -3456,7 +3550,7 @@
  			const chatScrollPositions = /* @__PURE__ */ new Map();
  			const viewTabs = () => {
  				const tabs = [];
-@@ -9636,6 +12878,8 @@
+@@ -10101,6 +13453,8 @@
  				},
  				inject: (sessionId) => {
  					if (sessionId === void 0) return {
@@ -3465,7 +3559,7 @@
  						keyboard: void 0,
  						addImages: void 0,
  						removeImage: void 0,
-@@ -9654,6 +12898,8 @@
+@@ -10119,6 +13473,8 @@
  					const shell = inputHub.shell(sessionId);
  					const inputTriggers = inputHub.inputTriggers(sessionId);
  					return {
@@ -3474,7 +3568,22 @@
  						keyboard: shell,
  						addImages: (files) => {
  							try {
-@@ -9763,7 +13009,9 @@
+@@ -10204,6 +13560,14 @@
+ 							const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd;
+ 							return workspaces.openPath((0, _deepseek_ai_dsh_client_runtime_client.resolveWorkspacePath)(cwd, path));
+ 						},
++						// [file-preview] 会话内只读预览：解析路径后经 host.readTextFile 取回文本。
++						previewFile: async (path) => {
++							const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd;
++							const resolved = (0, _deepseek_ai_dsh_client_runtime_client.resolveWorkspacePath)(cwd, path);
++							const response = await connection.api.host.readTextFile({ path: resolved });
++							if (!response.result.ok) throw new Error(response.result.error.message);
++							return response.result.value;
++						},
+ 						loadOlder: () => {
+ 							scoped.loadOlder();
+ 						},
+@@ -10235,7 +13599,9 @@
  				name: "conversation.composer.dock",
  				id: "stats",
  				order: 0,

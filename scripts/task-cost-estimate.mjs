@@ -16,18 +16,30 @@ import { join } from "node:path";
 const ROOT = "/home/claude/.dsh/sessions/--home-claude--";
 
 // ── 价表(与 GUI/服务端 ESTIMATED_PRICES 同步,¥/百万 token) ──
+// [billing-20260910] 9/10 12:00 北京起 Flash 系列降价:空闲 命中0.02/未命中1/输出4,高峰翻倍。
+// 历史调用按当时生效的旧档(peak/offpeak)计价。
 const PRICES = {
 	"deepseek-v4-flash": {
 		current: { cacheRead: 0.02, cacheMiss: 1, output: 2 },
 		peak: { cacheRead: 0.1, cacheMiss: 3, output: 9 },
 		offpeak: { cacheRead: 0.05, cacheMiss: 1.5, output: 4.5 },
+		peak2: { cacheRead: 0.04, cacheMiss: 2, output: 8 },
+		offpeak2: { cacheRead: 0.02, cacheMiss: 1, output: 4 },
 	},
 };
 const PEAK_SINCE = Date.parse("2026-08-16T16:00:00Z");
+const WEEKEND_OFFPEAK_SINCE = Date.parse("2026-08-22T16:00:00Z"); // 2026-08-23 00:00 北京起:周六/周日全天统一低谷价
+const PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z"); // 2026-09-10 12:00 北京
 function period(now) {
 	if (now < PEAK_SINCE) return "current";
-	const h = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).format(now));
-	return (h >= 9 && h < 12) || (h >= 14 && h < 18) ? "peak" : "offpeak";
+	const parts = {};
+	for (const p of new Intl.DateTimeFormat("en-US", { weekday: "short", hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).formatToParts(now)) parts[p.type] = p.value;
+	const h = Number(parts.hour);
+	const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
+	const peak = isWeekend && now >= WEEKEND_OFFPEAK_SINCE ? false : ((h >= 9 && h < 12) || (h >= 14 && h < 18));
+	const tier2 = now >= PRICE_CHANGE_20260910;
+	if (peak) return tier2 ? "peak2" : "peak";
+	return tier2 ? "offpeak2" : "offpeak";
 }
 const costOf = (b, at) => {
 	const p = PRICES["deepseek-v4-flash"][period(at)];

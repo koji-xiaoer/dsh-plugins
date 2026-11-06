@@ -320,34 +320,51 @@
 ```js
 const ESTIMATED_PRICES = {
   "deepseek-v4-flash": {
-    current: { cacheRead: 0.02,  cacheMiss: 1,    output: 2   },
-    peak:    { cacheRead: 0.1,   cacheMiss: 3,    output: 9   },
-    offpeak: { cacheRead: 0.05,  cacheMiss: 1.5,  output: 4.5 }
+    current:  { cacheRead: 0.02,  cacheMiss: 1,    output: 2   },  // 8/17 前
+    peak:     { cacheRead: 0.1,   cacheMiss: 3,    output: 9   },  // 8/17~9/10 12:00 工作日峰
+    offpeak:  { cacheRead: 0.05,  cacheMiss: 1.5,  output: 4.5 },  // 8/17~9/10 12:00 谷
+    peak2:    { cacheRead: 0.04,  cacheMiss: 2,    output: 8   },  // 9/10 12:00 起新价 · 峰
+    offpeak2: { cacheRead: 0.02,  cacheMiss: 1,    output: 4   }   // 9/10 12:00 起新价 · 谷
   },
+  "deepseek-v4-flash-vision-exp": { /* 与 deepseek-v4-flash 同价(官方同标准) */ },
   "deepseek-v4-pro": {
-    current: { cacheRead: 0.025, cacheMiss: 3,    output: 6   },
-    peak:    { cacheRead: 0.3,   cacheMiss: 9,    output: 27  },
-    offpeak: { cacheRead: 0.15,  cacheMiss: 4.5,  output: 13.5 }
+    current:  { cacheRead: 0.025, cacheMiss: 3,    output: 6   },
+    peak:     { cacheRead: 0.3,   cacheMiss: 9,    output: 27  },
+    offpeak:  { cacheRead: 0.15,  cacheMiss: 4.5,  output: 13.5 },
+    peak2:    { cacheRead: 0.3,   cacheMiss: 9,    output: 27  },  // 官方计费不变
+    offpeak2: { cacheRead: 0.15,  cacheMiss: 4.5,  output: 13.5 }
   }
 };
 const ESTIMATED_FALLBACK_MODEL = "deepseek-v4-flash";
 const PEAK_PRICE_SINCE = Date.parse("2026-08-16T16:00:00Z");   // = 北京 2026-08-17 00:00
+const WEEKEND_OFFPEAK_SINCE = Date.parse("2026-08-22T16:00:00Z"); // = 北京 2026-08-23 00:00:周末全天低谷价(8/22 公布当天及以前仍按峰谷时段)
+const PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z");  // = 北京 2026-09-10 12:00:Flash 系列降价
 ```
 - 桶语义：`cacheRead` = 缓存命中输入；`cacheMiss` = 未命中输入（也覆盖缓存写入 cacheWrite）；`output` = 输出。
 - 未知模型回退 v4-flash 表。
+- 历史事件按**当时生效的价档**计价（不用新价回溯），否则过去时段金额会被改写。
 
 ### 3.2 pricingPeriod 峰谷判定（北京时区）
 
 ```js
 function pricingPeriod(now) {
   if (now < PEAK_PRICE_SINCE) return "current";   // 2026-08-17 00:00(北京)之前恒为 current
-  const hour = Number(new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", hour12: false, timeZone: "Asia/Shanghai"
-  }).format(now));
-  return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? "peak" : "offpeak";
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat("en-US", {
+    weekday: "short", hour: "numeric", hour12: false, timeZone: "Asia/Shanghai"
+  }).formatToParts(now)) parts[p.type] = p.value;
+  const hour = Number(parts.hour);
+  const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
+  // 8/23 00:00(北京)起:周六/周日全天统一低谷价,不再区分峰谷时段(8/22 及以前周末仍按峰谷时段)
+  const peak = isWeekend && now >= WEEKEND_OFFPEAK_SINCE ? false : ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18));
+  // [billing-20260910] 9/10 12:00(北京)起 Flash 系列降价,走 peak2/offpeak2 新档
+  const tier2 = now >= PRICE_CHANGE_20260910;
+  if (peak) return tier2 ? "peak2" : "peak";
+  return tier2 ? "offpeak2" : "offpeak";
 }
 ```
-- 峰时 09:00–12:00 / 14:00–18:00（北京时间），其余 offpeak；`hour` 可能为 "24"→Number 24 不会落入 9-12/14-18（安全）。
+- 工作日峰时 09:00–12:00 / 14:00–18:00（北京时间，`[起,止)` 语义），其余 offpeak；8/23 00:00 起周六/周日（北京时间）全天 offpeak（8/22 及以前周末仍按峰谷时段）；`hour` 可能为 "24"→Number 24 不会落入 9-12/14-18（安全）。
+- **[billing-20260910] 分代价档**：2026-09-10 12:00 北京（`PRICE_CHANGE_20260910 = Date.parse("2026-09-10T04:00:00Z")`）起 Flash 系列降价，时段键加 `2` 后缀区分新旧档；`PERIOD_FALLBACK = { peak2: "peak", offpeak2: "offpeak" }` 保证新档缺表时回退到同代旧档，而不是 `current`（跨代错价）。
 
 ### 3.3 每轮/每笔费用计算
 
@@ -478,7 +495,7 @@ function resolvePrice(model, now, customPrices) {
 | `billing.back` | 返回账单 | Back to statement |
 | `billing.balance` | 账户余额 {balance} | Account balance {balance} |
 | `settings.cost.title` | 费用预估 | Cost estimate |
-| `settings.cost.description` | 在会话统计栏显示预估费用；价格留空则用内置价（8/17 后按北京时区自动峰谷价） | Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak after Aug 17, Beijing time) |
+| `settings.cost.description` | 在会话统计栏显示预估费用；价格留空则用内置价（8/17 后按北京时区自动峰谷价，周末全天低谷价） | Show an estimated cost in the conversation stats line; leave prices blank for built-in rates (auto peak/off-peak after Aug 17, Beijing time; off-peak all day on weekends from Aug 23) |
 | `settings.cost.enable` | 显示预估费用 | Show estimated cost |
 | `settings.cost.cacheRead` | 缓存命中 | cache read |
 | `settings.cost.cacheMiss` | 未命中 | cache miss |
@@ -487,8 +504,8 @@ function resolvePrice(model, now, customPrices) {
 | `settings.cost.period.peak` | 峰时价 | Peak rate |
 | `settings.cost.period.offpeak` | 谷时价 | Off-peak rate |
 | `settings.cost.period.now` | 当前适用： | Currently: |
-| `settings.cost.period.meta` | 峰时 09:00–12:00 / 14:00–18:00（北京时间） | Peak 09:00–12:00 / 14:00–18:00 (Beijing time) |
-| `settings.cost.period.metaStandard` | 8/17 起按北京时间自动切换峰谷价 | Auto peak/off-peak from Aug 17, Beijing time |
+| `settings.cost.period.meta` | 工作日峰时 09:00–12:00 / 14:00–18:00；周末全天低谷价（北京时间） | Weekday peak 09:00–12:00 / 14:00–18:00; off-peak all day on weekends (Beijing time) |
+| `settings.cost.period.metaStandard` | 8/17 起按北京时间自动切换峰谷价；8/23 起周末全天低谷价 | Auto peak/off-peak from Aug 17; off-peak all day on weekends from Aug 23, Beijing time |
 | `settings.cost.unit` | ¥/M | ¥/M |
 | `settings.cost.builtinHint` | 内置价（{period}）：¥{price} / 百万 tokens | Built-in rate ({period}): ¥{price} per 1M tokens |
 | `settings.cost.builtin` | 内置 ¥{price} | built-in ¥{price} |

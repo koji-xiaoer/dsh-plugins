@@ -396,7 +396,7 @@ window.__ModuleLoader__.load({
 									onChange: (e) => setPrice(model, key, e.target.value === "" ? undefined : Number(e.target.value))
 								}));
 						})))),
-				R.createElement("div", { className: "cost-settings-label" }, "说明: 峰时 09-12/14-18(北京),按请求时刻计价;内置价见 deepseek-v4-flash/pro"));
+				R.createElement("div", { className: "cost-settings-label" }, "说明: 工作日峰时 09-12/14-18(北京);8/23 00:00 起周末全天低谷价(此前周末仍按峰谷时段);按请求时刻计价;内置价见 deepseek-v4-flash/pro"));
 		}
 		function CurrencyCard(props) {
 			const cur = useCurrency();
